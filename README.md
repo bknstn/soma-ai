@@ -1,13 +1,12 @@
-# Soma AI
+# SOMA
 
-Soma AI helps plan your next training session from workout history and sleep/recovery context already stored in Health OS. Health OS validates the context and calculates the session; a native Hermes skill lets you ask for it conversationally.
+SOMA is an AI agent that helps you understand and care for your body as a whole. Its goal is to bring wearable data, daily activities, and habits together into a clear picture of your body's state and how it changes over time.
 
-- **Recovery-aware:** prepares a session using the available recovery status and workout history.
-- **Explained:** shows the session strategy, rationale, and source references.
-- **Honest:** marks missing inputs and unsupported recovery instead of guessing.
-- **Private by design:** keeps original records in a local Health OS workspace and passes Hermes a bounded summary, not raw health records.
+## Current implementation
 
-The implemented workflow is manual training preparation from data already in the workspace.
+The first implemented workflow is manual training preparation from workout history and sleep/recovery context already stored in a local Health OS workspace. Health OS validates the context and calculates the session; a native Hermes skill lets you ask for it conversationally.
+
+The result explains the session strategy, rationale, sources, and missing inputs. Original records stay in the local workspace; Hermes receives a bounded summary.
 
 ## Run
 

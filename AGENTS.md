@@ -2,7 +2,7 @@
 
 ## Product and privacy
 
-- SOMA is a public, forkable body, health, sleep, and activity assistant. The current product slice is a manually run training-preparation flow; it is not a completed hosted product.
+- SOMA is a public, forkable AI agent for understanding and caring for the body as a whole. Its goal is to connect wearable data with daily activities and habits. The current product slice is a manually run training-preparation flow; it is not a completed hosted product.
 - Develop with neutral templates and fully synthetic examples only. Do not search for, read, import, or use the repository owner's personal records, private workspaces, documents, history, memories, or health accounts.
 - Keep the Health OS workspace outside both repositories. Never commit `.env` files, `.health-os/` state, credentials, raw documents, or complete health-context output.
 - Do not connect live health accounts as part of ordinary development. Tests and examples must use synthetic data or fixtures.

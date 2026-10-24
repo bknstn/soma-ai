@@ -1,6 +1,6 @@
 # Product roadmap
 
-SOMA's broader direction is a user-owned assistant for body, health, sleep, and activity. Each person chooses what information to keep in their private workspace and which sources to connect. The roadmap is intentionally staged; the current repository targets the first manual workflow.
+SOMA is an AI agent for understanding and caring for the body as a whole. Its goal is to connect wearable data with daily activities and habits to help people understand their body's state and how it changes over time. Each person chooses what information to keep in their private workspace and which sources to connect. The roadmap is intentionally staged; the current repository targets the first manual workflow.
 
 ## Initial milestone: manual training preparation
 
