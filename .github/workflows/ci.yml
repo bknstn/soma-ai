@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOMA_REPO: ${{ github.workspace }}/soma-ai
+      HEALTH_OS_REPO: ${{ github.workspace }}/health-os
+      HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
+    steps:
+      - name: Check out SOMA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: soma-ai
+          persist-credentials: false
+
+      - name: Check out pinned Health OS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bknstn/health-os
+          ref: 363204694ea805256595bf30c72d25c9361595d1
+          path: health-os
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.13.0
+          package-manager-cache: false
+
+      - name: Run unit and contract tests
+        working-directory: soma-ai
+        run: npm test
+
+      - name: Run pinned Health OS integration smoke
+        working-directory: soma-ai
+        run: |
+          set -euo pipefail
+          node src/cli.js doctor --json
+          node src/cli.js init --json
+          node src/cli.js prepare-training --as-of 2026-10-24T08:00:00Z --json
+
+      - name: Run synthetic end-to-end demo
+        working-directory: soma-ai
+        run: npm run demo
+
+      - name: Remove synthetic workspace
+        if: always()
+        run: |
+          rm -rf -- "$HEALTH_OS_WORKSPACE"
+          test ! -e "$HEALTH_OS_WORKSPACE"

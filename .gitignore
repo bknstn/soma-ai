@@ -1,0 +1,30 @@
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+.credentials/
+credentials/
+secrets/
+*.pem
+*.key
+
+# Health OS workspaces and personal source material
+**/.health-os/
+**/personal/raw/
+**/health-workspace/
+**/health-workspaces/
+workspace/
+workspaces/
+health-os-workspace/
+health-output/
+raw-health-data/
+*token*.json
+
+# Hermes local configuration and installed state
+**/.hermes/
+
+# Node and OS output
+node_modules/
+coverage/
+.DS_Store
+npm-debug.log*

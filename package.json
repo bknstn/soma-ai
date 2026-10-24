@@ -1,0 +1,16 @@
+{
+  "name": "soma-ai",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "A local, privacy-first body, health, sleep, and activity assistant built around Hermes and Health OS.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "demo": "node examples/demo.mjs",
+    "test": "node --test"
+  }
+}

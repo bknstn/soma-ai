@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "as_of": {
+    "kind": "timestamp",
+    "value": "2026-10-24T10:00:00.000Z",
+    "date": "2026-10-24",
+    "timestamp": "2026-10-24T10:00:00.000Z",
+    "semantics": "Synthetic exact instant cutoff"
+  },
+  "profile": {
+    "status": "available",
+    "content": "SYNTHETIC_PROFILE_PRIVATE_TEXT"
+  },
+  "session_selection": {
+    "selected_day_type": "A",
+    "strategy": "weekday_mapping",
+    "reason": "synthetic configured weekday assignment"
+  },
+  "workout": {
+    "mode": "FULL",
+    "scheduled_only": false,
+    "exercises": [
+      {
+        "exercise_key": "goblet_squat",
+        "exercise_name": "Goblet squat",
+        "target_sets": 3,
+        "target_reps": "8-10",
+        "target_weight": "30",
+        "load_tier": "moderate"
+      }
+    ]
+  },
+  "recovery": {
+    "status": "available",
+    "decision": {
+      "status": "available",
+      "mode": "FULL",
+      "score": 88,
+      "reasons": [],
+      "breakdown": ["readiness +3", "sleep +2", "hrv +2", "resting_hr +1"],
+      "explanation": "Mode FULL from score 8: readiness +3, sleep +2, hrv +2, resting_hr +1."
+    },
+    "physical_metrics": {
+      "resting_hr_bpm": 47
+    },
+    "proprietary_scores": {
+      "readiness": 91
+    }
+  },
+  "subjective": {
+    "applied": [
+      { "reason": "SYNTHETIC_EVENT_TEXT_SHOULD_NOT_BE_PRESENTED" }
+    ]
+  },
+  "memory": {
+    "status": "available",
+    "evidence": [
+      { "excerpt": "SYNTHETIC_MEMORY_EVIDENCE_SHOULD_NOT_BE_PRESENTED" }
+    ]
+  },
+  "gaps": [],
+  "provenance": {
+    "profile": "synthetic/profile.md",
+    "training_plan": ".health-os/config/training-plan.json",
+    "preparation_policy": ".health-os/config/preparation-policy.json",
+    "rules": ".health-os/config/rules.json",
+    "exercise_settings": ".health-os/config/exercise-settings.json",
+    "workout_sessions": ".health-os/data/workout_sessions.csv",
+    "exercise_logs": ".health-os/data/exercise_logs.csv",
+    "recovery": ".health-os/data/daily_state.csv",
+    "recovery_source": "synthetic-provider-id",
+    "events": ".health-os/data/events.sqlite",
+    "memory": ["synthetic/memory.md"]
+  }
+}
