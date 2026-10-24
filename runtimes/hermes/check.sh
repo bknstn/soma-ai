@@ -125,7 +125,7 @@ case "$skill_output" in
   *) emit false "$source_revision" true "$python_version" true false false false 'skill_not_loaded'; exit 1 ;;
 esac
 
-if ! installed_telegram_version="$(cd "$source_dir" && "$hermes_python" -c 'import telegram; from telegram.ext import Application; print(telegram.__version__)' 2>/dev/null)"; then
+if ! installed_telegram_version="$(cd "$source_dir" && "$hermes_python" -c 'import hermes_bootstrap; import telegram; from telegram.ext import Application; print(telegram.__version__)' 2>/dev/null)"; then
   emit false "$source_revision" true "$python_version" true true false false 'telegram_dependency_missing'
   exit 1
 fi
@@ -135,6 +135,7 @@ fi
 }
 
 if ! authz_output="$(cd "$source_dir" && "$hermes_python" - <<'PY' 2>/dev/null
+import hermes_bootstrap
 import os
 from gateway.authz_mixin import GatewayAuthorizationMixin
 from gateway.config import Platform

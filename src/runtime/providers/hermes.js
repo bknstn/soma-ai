@@ -252,7 +252,8 @@ function readPythonPath(context, pythonFile, runtimeDirectory) {
   return executable;
 }
 
-const GATEWAY_CONFIG_CHECK = String.raw`import json, os, sys
+const GATEWAY_CONFIG_CHECK = String.raw`import hermes_bootstrap
+import json, os, sys
 from pathlib import Path
 
 def refuse(code):

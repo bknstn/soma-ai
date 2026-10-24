@@ -33,7 +33,10 @@ function fakeProvider({ onSetup = () => {}, onInspect = () => {}, onLaunch = () 
       return { FAKE_AGENT_HOME: path.join(runtimeHome, 'fake-home') };
     },
     async setup(context) { onSetup(context); return { ready: true, status: 'ready' }; },
-    async inspect(context) { onInspect(context); return { ready: true, status: 'ready' }; },
+    async inspect(context) {
+      const result = await onInspect(context);
+      return result && typeof result === 'object' ? result : { ready: true, status: 'ready' };
+    },
     async launch(args) { return onLaunch(args); }
   };
 }
@@ -273,6 +276,29 @@ test('runtime setup refuses populated unmanaged home', async (t) => {
     return true;
   });
   assert.equal(fs.readFileSync(path.join(runtimeHome, 'keep.txt'), 'utf8'), 'synthetic user file');
+});
+
+test('runtime setup reports only bounded readiness status codes', async (t) => {
+  const root = temporaryRoot(t);
+  const failed = new RuntimeManager({
+    runtime: 'fake-agent', runtimeHome: path.join(root, 'failed'), env: {}, repoRoot,
+    providers: { 'fake-agent': fakeProvider({ onInspect: () => ({ ready: false, status: 'gateway_authz_check_failed' }) }) }
+  });
+  await assert.rejects(failed.setup(), (error) => {
+    assert.equal(error.code, 'SOMA_RUNTIME_SETUP_INCOMPLETE');
+    assert.match(error.message, /gateway_authz_check_failed/);
+    return true;
+  });
+
+  const unsafe = new RuntimeManager({
+    runtime: 'fake-agent', runtimeHome: path.join(root, 'unsafe'), env: {}, repoRoot,
+    providers: { 'fake-agent': fakeProvider({ onInspect: () => ({ ready: false, status: 'sk-secret-with-dashes' }) }) }
+  });
+  await assert.rejects(unsafe.setup(), (error) => {
+    assert.equal(error.code, 'SOMA_RUNTIME_SETUP_INCOMPLETE');
+    assert.doesNotMatch(error.message, /sk-secret/);
+    return true;
+  });
 });
 
 test('runtime home cannot be a symlink and managed HOME cannot escape after setup', async (t) => {
@@ -595,6 +621,8 @@ test('Hermes gateway refuses hidden secret files, named profiles, and widened co
   configResult = { status: 0, stdout: '{"ok":false,"code":"non_telegram_platform_configured"}\n', stderr: '' };
   await assert.rejects(launch(), { code: 'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED' });
   assert.equal(calls.length, 1);
+  assert.match(calls[0].args[1], /^import hermes_bootstrap\n/,
+    'gateway config preflight must enter Hermes PM environment before imports');
 });
 
 test('pinned Telegram dependency remains native and offline-verifiable', () => {
@@ -608,8 +636,12 @@ test('pinned Telegram dependency remains native and offline-verifiable', () => {
     /telegram = \["python-telegram-bot\[webhooks\]==22\.8"\]/);
   assert.match(fs.readFileSync(path.join(repoRoot, 'third_party/hermes-agent/uv.lock'), 'utf8'),
     /name = "python-telegram-bot"\nversion = "22\.8"/);
-  assert.match(fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/check.sh'), 'utf8'),
-    /gateway_authz_check_failed/);
+  const checkScript = fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/check.sh'), 'utf8');
+  assert.match(checkScript, /import hermes_bootstrap; import telegram;/,
+    'Telegram dependency probe must activate Hermes PM environment');
+  assert.match(checkScript, /import hermes_bootstrap\nimport os\nfrom gateway\.authz_mixin/,
+    'authorization probe must activate Hermes PM environment');
+  assert.match(checkScript, /gateway_authz_check_failed/);
 });
 
 test('provider dependency installs stay managed, credential-free, and allowlisted', async (t) => {

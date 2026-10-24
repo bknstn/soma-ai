@@ -324,7 +324,11 @@ export class RuntimeManager {
       const result = await this.#provider.setup(context);
       const inspection = await this.#provider.inspect(context);
       if (!inspection || inspection.ready !== true) {
-        throw new RuntimeError('Runtime setup finished without a ready status.', { code: 'SOMA_RUNTIME_SETUP_INCOMPLETE' });
+        const status = typeof inspection?.status === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(inspection.status)
+          ? ` (${inspection.status})` : '';
+        throw new RuntimeError(`Runtime setup finished without a ready status${status}.`, {
+          code: 'SOMA_RUNTIME_SETUP_INCOMPLETE'
+        });
       }
       writeMarker(context.runtimeHome, {
         schema_version: RUNTIME_HOME_SCHEMA_VERSION,
