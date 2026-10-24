@@ -19,10 +19,10 @@
 
 ## VPS operations
 
-- Read `docs/vps.md` before deployment or migration work. Use `npm run vps:ssh` or `sh scripts/vps-ssh.sh` for SSH; both use the local `hermes-vps` alias by default, shared with AI Buddy. `ASSISTANT_VPS_SSH_HOST` overrides the alias.
+- Read `docs/vps.md` before deployment work. Set `SOMA_VPS_SSH_HOST` explicitly before using `npm run vps:ssh` or `sh scripts/vps-ssh.sh`; the wrapper has no default host.
 - SSH resolves the host, user and existing key from the operator's local SSH configuration. Never copy private keys or authentication material into either repository.
-- The initial deployment uses the existing SSH account with a separate `$HOME/soma` tree and `hermes-soma.service`. These are planned conventions; inspect live state before creating or changing them.
-- Keep SOMA runtime state and the Health OS workspace separate from Buddy. Test the new Telegram bot with neutral or synthetic data before a separately scoped migration; do not inspect or import Buddy's private records during deployment preparation.
+- Keep hostnames, account choices, service inventory, actual deployment paths, and migration plans in private operator configuration or notes. Public documentation and templates must use generic examples.
+- Keep SOMA runtime state and the Health OS workspace separate from other applications. Inspect the explicitly selected deployment target before creating or changing paths or services, and test with neutral or synthetic data. Do not inspect or import private records during deployment preparation.
 
 ## Temporary files
 

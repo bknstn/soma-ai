@@ -614,7 +614,7 @@ test('Hermes gateway refuses hidden secret files, named profiles, and widened co
   assert.equal(calls.length, 0, 'hidden env files must be rejected before config loader execution');
   fs.rmSync(path.join(runtimeHome, 'hermes-home', '.env'));
 
-  fs.mkdirSync(path.join(runtimeHome, 'hermes-home', 'profiles', 'buddy-profile'), { recursive: true });
+  fs.mkdirSync(path.join(runtimeHome, 'hermes-home', 'profiles', 'synthetic-profile'), { recursive: true });
   await assert.rejects(launch(), { code: 'SOMA_HERMES_GATEWAY_PROFILES_BLOCKED' });
   fs.rmSync(path.join(runtimeHome, 'hermes-home', 'profiles'), { recursive: true });
 

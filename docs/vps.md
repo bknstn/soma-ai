@@ -1,89 +1,70 @@
-# VPS deployment preparation
+# Self-hosted deployment
 
-SOMA will initially share the existing assistant's SSH account and host, with its own source, runtime, Health OS workspace, Telegram bot, and service. Sharing an account is an operational choice: separate directories do not prevent processes under that account from accessing each other's files.
+This guide describes a reusable Linux deployment of SOMA's managed Telegram gateway. Choose your own host, account, directories, and service name. Keep actual host addresses, SSH aliases, usernames, key paths, service inventory, and operational notes outside Git.
 
-This is a deployment checklist. The source now includes a bounded Telegram gateway command, a separate `hermes-soma.service` user-unit template, and private environment-file conventions. No server deployment, bot setup, or data migration is implied by this document.
+Use a dedicated operating-system account when isolation from other applications is required. Separate directories under a shared account do not prevent that account's processes from accessing each other's files.
 
-## SSH access from either repository
+## Explicit SSH target
 
-The default local SSH alias is `hermes-vps`. It uses the host, account, and key already configured in the operator's SSH client. Reuse that authentication; no second key or server account is required for the initial deployment.
-
-From SOMA:
+Configure authentication in your local SSH client and set `SOMA_VPS_SSH_HOST` to the host or alias you intend to access. The wrapper has no default target and exits with an error when this variable is unset or empty. Replace `YOUR_SSH_ALIAS` in these examples with your own privately configured target:
 
 ```sh
-npm run vps:ssh
+SOMA_VPS_SSH_HOST=YOUR_SSH_ALIAS npm run vps:ssh
 ```
 
-From SOMA or AI Buddy:
+The wrapper accepts remote-command arguments:
 
 ```sh
-sh scripts/vps-ssh.sh
-# Equivalent, from any directory:
-ssh hermes-vps
+SOMA_VPS_SSH_HOST=YOUR_SSH_ALIAS sh scripts/vps-ssh.sh 'id -un'
 ```
 
-To use another locally configured alias:
+Authentication remains in the SSH client and agent. Keep private keys and real connection details outside both repositories. Inspect the explicitly selected target before changing its files or services.
 
-```sh
-ASSISTANT_VPS_SSH_HOST=assistant-vps sh scripts/vps-ssh.sh
-```
+## Example directory layout
 
-The wrapper also accepts a remote command, for example `sh scripts/vps-ssh.sh 'id -un'`. It only invokes SSH; it does not install, restart, configure, or migrate anything. Inspect the target before performing operational changes. Actual host addresses, key paths, tokens, and connection evidence stay outside source control. On another workstation, configure the alias in that workstation's SSH client first.
-
-## Separate layout under the existing account
-
-Use the account's home as the base. The following paths are proposed conventions, not proof of installed directories:
+The following tree is a generic example. Choose an available deployment root outside both source checkouts and adapt every path to your environment:
 
 ```text
 $HOME/soma/
   source/
-    soma-ai/               # Published SOMA main, including its pinned submodule
+    soma-ai/               # SOMA checkout with its pinned Hermes submodule
     health-os/             # Separate checkout at the compatible revision
-  runtime/                 # New SOMA_RUNTIME_HOME; not a Buddy profile
+  runtime/                 # New SOMA_RUNTIME_HOME
   workspace/               # New HEALTH_OS_WORKSPACE, outside both checkouts
-  config/                  # Private service environment, no secrets in source
+  config/                  # Private service environment
 ```
 
-Set `HEALTH_OS_REPO` to `$HOME/soma/source/health-os`, `HEALTH_OS_WORKSPACE` to `$HOME/soma/workspace`, and `SOMA_RUNTIME_HOME` to `$HOME/soma/runtime`. Keep the actual runtime home, workspace, and private configuration owner-only. The service credentials belong in `$HOME/soma/config/gateway.env`, copied from [the non-secret environment example](../deploy/systemd/gateway.env.example) and restricted to mode `0600`. Put provider/model selection in `$HOME/soma/runtime/hermes-home/config.yaml`; for the initial OpenAI API setup, select canonical `openai-api`, an explicit model, Telegram only, and `unauthorized_dm_behavior: ignore`. Keep the API key in the private environment file. Do not run the local interactive `runtime:configure` flow for this service because it can save keys in Hermes `.env`, which the gateway refuses. Do not reuse an existing Hermes home or clone Buddy's configuration directory.
+Set `HEALTH_OS_REPO`, `HEALTH_OS_WORKSPACE`, and `SOMA_RUNTIME_HOME` explicitly to the corresponding absolute paths. Keep runtime state, the workspace, and private configuration owner-only. Start from [the environment example](../deploy/systemd/gateway.env.example), replace `/home/ACCOUNT` and all other placeholders privately, and restrict the resulting environment file to mode `0600`. Systemd environment files require absolute values and do not expand shell variables such as `$HOME`.
 
-The unit is `hermes-soma.service`, separate from other assistant services. Adapt [the user service template](../deploy/systemd/hermes-soma.service) with the account's absolute source, runtime, environment-file, and Node paths. Install and manage it with `systemctl --user` only after source publication and runtime setup. Use absolute paths in its environment file; systemd environment files do not perform shell variable expansion. The service defaults to Telegram polling and restarts on failure; it does not configure or start itself.
+Put provider/model selection and Telegram settings in the isolated runtime's `hermes-home/config.yaml`; see the [managed gateway configuration](hermes.md#managed-telegram-gateway). Keep credentials in the private service environment file. The interactive `runtime:configure` flow can save keys in Hermes `.env`, which the managed gateway refuses. Create a fresh runtime instead of copying another application's configuration, credentials, sessions, or existing Hermes home.
 
-## Ordered rollout checklist
+Adapt [the systemd user-service template](../deploy/systemd/hermes-soma.service) with the account's absolute source, runtime, environment-file, and Node paths. Choose a service name that is distinct from other services on the target host. Document any actual deployment inventory privately.
 
-1. **Repository preparation — implementation work**
-   - [x] Document SSH access and add the same wrapper in both repositories.
-   - [x] Define separate directories and a distinct service name.
-   - [x] Add a bounded gateway action to SOMA's runtime manager, CLI, and Hermes adapter. Preserve isolated `HOME`, `HERMES_HOME`, working directory, source pins, and explicit Health OS paths; allow only Telegram and provider credentials from the runtime allowlists.
-   - [x] Add a user systemd service template and a non-secret private-environment example for the managed SOMA gateway, with restart handling and absolute paths. Keep service installation separate from Hermes' generic installer.
-   - [x] Add offline/mocked tests for isolated gateway invocation, env filtering, synthetic allowlist authorization, and signal forwarding; add a CI-only preflight integration test using the pinned Telegram config loader with the final process spawn mocked. No live model or Telegram calls are part of these checks.
-   - [ ] Run the pinned runtime integration check in CI and review its result, including Telegram SDK, native SOMA skill, authorization behavior, and actual config preflight, before publication.
-   - [ ] Review and publish deployment source to GitHub `main` before server installation. Deploy by fetching and fast-forwarding the server's `main`, then verify its HEAD matches the freshly fetched `origin/main`.
+## Installation checklist
 
-2. **Server installation — agent/operator**
-   - [ ] Recheck the SSH account, dependencies, free space, existing services, and target-path availability without opening private assistant data.
-   - [ ] Create the SOMA tree without overwriting existing paths. Clone SOMA and initialize its committed Hermes submodule; do not update the submodule to upstream main.
-   - [ ] Clone Health OS separately at `363204694ea805256595bf30c72d25c9361595d1`. Keep Hermes at `bf0203a794a07aac3ff764972ab9087baa4e4f4e` (v0.22.5).
-   - [ ] Export the explicit paths, run `npm run runtime:setup` and `npm run runtime:doctor`, and check the local native skill list. Run these checks without provider credentials.
-   - [ ] Explicitly initialize a new neutral Health OS workspace and check deterministic training preparation. Missing data must remain visible. This step does not import Buddy records or connect health accounts.
-   - [ ] Create the isolated `hermes-home/config.yaml` model/platform settings and enter the chosen provider key directly into the owner-only service environment file. SSH authentication is shared; provider authentication is separate. Do not use interactive `runtime:configure` for this service, and do not read or copy Buddy's credentials or existing Hermes home.
+1. **Verify source and prerequisites.**
+   - Review the intended SOMA revision and its CI results before installation. For a deployment from `main`, fetch and fast-forward the server checkout, then verify its HEAD matches the intended `origin/main` revision.
+   - Check the selected account, dependencies, free space, and target-path availability without opening private application data. Create new paths without overwriting existing files.
+   - Initialize the committed Hermes submodule; do not update it to upstream main. The supported Hermes revision is `bf0203a794a07aac3ff764972ab9087baa4e4f4e` (v0.22.5).
+   - Check out Health OS separately at the supported revision `363204694ea805256595bf30c72d25c9361595d1`.
 
-3. **Telegram bot — user, then agent/operator**
-   - [ ] User creates a separate SOMA bot with BotFather and keeps its token private.
-   - [ ] Enter the new token directly into SOMA's private server configuration, without putting it in chat, shell arguments, logs, or Git.
-   - [ ] Configure an explicit Telegram user allowlist. Do not enable unrestricted access or add webhook/other-channel settings; the managed gateway requires Telegram polling with unauthorized DMs ignored.
-   - [ ] Render the unit with the actual absolute paths, run `systemd-analyze verify`, then install and start only `hermes-soma.service`. Verify it uses SOMA's runtime and new token, with no competing process consuming updates for that token. Check user-service persistence after logout and boot.
+2. **Prepare isolated runtime and workspace.**
+   - Export the explicit paths, run `npm run runtime:setup` and `npm run runtime:doctor`, and check the local native skill list without provider credentials.
+   - Explicitly initialize a new neutral Health OS workspace and check deterministic training preparation with synthetic inputs. Missing data must remain visible.
+   - Configure provider/model selection and Telegram polling in the isolated runtime. The managed gateway requires `unauthorized_dm_behavior: ignore` and rejects other channels and webhook settings.
 
-4. **Acceptance test — user and agent/operator**
-   - [ ] User opens the new bot and sends a test message; verify a complete model reply.
-   - [ ] Invoke `/soma-health` against the neutral or synthetic workspace. Confirm missing inputs are explained and the flow does not write health-domain records.
-   - [ ] Check the allowlist with a mocked unauthorized sender; verify service restart, reconnect, session persistence, and private log handling. Check that the existing assistant service remains healthy.
-   - [ ] Record the accepted source revisions and rollback steps privately. Stop only SOMA's service if acceptance fails; preserve the existing assistant.
+3. **Configure private credentials and access.**
+   - Create a dedicated Telegram bot through BotFather and keep its token private.
+   - Enter the bot token, provider credentials, and explicit positive numeric Telegram user allowlist directly into the owner-only environment file. Keep real values out of chat, shell arguments, logs, and Git.
+   - Do not enable unrestricted gateway access. Run authorization checks with synthetic sender IDs before accepting real traffic.
 
-5. **Buddy → SOMA data migration — separate follow-up after acceptance**
-   - [ ] Agree on the exact source, destination, and selected data categories before reading private records. Distinguish health-domain data, instructions, conversations, memories, schedules, integrations, and credentials; they do not share one migration format.
-   - [ ] Review compatibility and the supported Health OS import interface. Implement migration separately from the read-only training-preparation flow and test it with synthetic fixtures first.
-   - [ ] Create a recoverable private backup under an explicit retention plan. Preview the mapping and validate a dry run before importing approved records.
-   - [ ] Check provenance, timestamps, record counts, duplicate/replay handling, and representative results. Configure integrations and credentials separately; do not blindly copy Hermes state or `~/.hermes`.
-   - [ ] Switch use to SOMA only after the migration is accepted. Retire or disable the old instance only on an explicit cutover decision, with rollback available.
+4. **Install and verify the service.**
+   - Render the unit with actual absolute paths, run `systemd-analyze --user verify` against the rendered unit, and install and start it with `systemctl --user` after reviewing the result.
+   - Confirm the service uses the chosen runtime and bot token, with no competing process consuming updates for that token. Check user-service persistence after logout and boot.
+   - Send a neutral test message and verify a complete reply. This acceptance check uses the configured provider and Telegram; offline development and CI checks must not make those calls.
+   - Invoke `/soma-health` against the neutral or synthetic workspace. Confirm missing inputs are explained and the flow does not write health-domain records.
+   - Verify restart, reconnect, session persistence, and private log handling. Record accepted revisions and rollback steps privately, and scope rollback to this deployment's service and files.
 
-Remove task-created temporary scripts, probes, staging files, and validation copies on every host after each task. Preserve implementation, requested deliverables, persistent runtime state, user data, and backups covered by the agreed retention plan.
+Deployment preparation does not authorize reading or migrating existing personal records. Any data migration requires a separate explicit scope, a supported import interface, and synthetic validation first. Keep source inventories, mappings, backups, and cutover plans in private operator notes.
+
+Remove task-created temporary scripts, probes, staging files, and validation copies on every host after each task. Preserve implementation, requested deliverables, persistent runtime state, user data, and backups covered by an agreed retention plan.

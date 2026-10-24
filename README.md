@@ -27,9 +27,9 @@ npm start -- prepare-training
 
 See the [Hermes setup and usage guide](docs/hermes.md) for isolated runtime setup, provider configuration, and Health OS paths.
 
-## VPS preparation
+## Self-hosted deployment
 
-Use `npm run vps:ssh` to connect through the local `hermes-vps` SSH alias, shared with AI Buddy. SOMA has a bounded Telegram gateway command and a separate `hermes-soma.service` user-unit template with a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [VPS checklist](docs/vps.md) for isolated paths, private configuration, service startup, testing, and the later data migration. Source preparation does not deploy or migrate data.
+SOMA includes a bounded Telegram gateway command, a systemd user-service template, and a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [deployment guide](docs/vps.md) to configure your own host, isolated paths, credentials, and service. SSH access requires an explicit `SOMA_VPS_SSH_HOST` value; keep actual connection details outside Git.
 
 ## Disclaimer
 
