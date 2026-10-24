@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "name": "hermes",
+  "provider": "hermes",
+  "source_path": "third_party/hermes-agent",
+  "source_revision": "bf0203a794a07aac3ff764972ab9087baa4e4f4e",
+  "upstream": {
+    "repository_url": "https://github.com/NousResearch/hermes-agent.git",
+    "tag": "v0.22.5",
+    "license": "MIT"
+  },
+  "bootstrap": {
+    "minimum_python": "3.11",
+    "maximum_python_exclusive": "3.15",
+    "package_manager": "Hermes PM",
+    "uv_version": "0.13.5",
+    "runtime_python": "3.14"
+  },
+  "runtime": {
+    "user_home": "user-home",
+    "working_directory": "working-directory",
+    "hermes_home": "hermes-home",
+    "runtime_dir": "hermes-tools",
+    "python_file": "hermes-python.txt",
+    "uv_cache": "uv-cache",
+    "python_cache": "python-cache"
+  },
+  "assets": {
+    "soul_template": "runtimes/hermes/SOUL.md",
+    "skill_source": "skills/soma-health",
+    "skill_destination": "hermes-home/skills/soma-health"
+  },
+  "commands": {
+    "entrypoint": "third_party/hermes-agent/hermes",
+    "help": ["--help"],
+    "chat": ["chat", "--cli"],
+    "list_local_skills": ["skills", "list", "--source", "local"]
+  }
+}

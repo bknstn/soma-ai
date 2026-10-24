@@ -11,16 +11,16 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       SOMA_REPO: ${{ github.workspace }}/soma-ai
       HEALTH_OS_REPO: ${{ github.workspace }}/health-os
-      HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
     steps:
       - name: Check out SOMA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: soma-ai
+          submodules: recursive
           persist-credentials: false
 
       - name: Check out pinned Health OS
@@ -39,12 +39,22 @@ jobs:
 
       - name: Run unit and contract tests
         working-directory: soma-ai
+        env:
+          HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
         run: npm test
 
       - name: Run pinned Health OS integration smoke
         working-directory: soma-ai
+        env:
+          HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
+          HEALTH_OS_CI_SENTINEL: ${{ runner.temp }}/.soma-health-workspace-ci-owned
         run: |
           set -euo pipefail
+          if test -e "$HEALTH_OS_WORKSPACE" || test -e "$HEALTH_OS_CI_SENTINEL"; then
+            echo "Refusing to reuse an existing Health OS workspace path." >&2
+            exit 1
+          fi
+          printf 'created by this CI job\n' > "$HEALTH_OS_CI_SENTINEL"
           node src/cli.js doctor --json
           node src/cli.js init --json
           node src/cli.js prepare-training --as-of 2026-10-24T08:00:00Z --json
@@ -53,8 +63,53 @@ jobs:
         working-directory: soma-ai
         run: npm run demo
 
-      - name: Remove synthetic workspace
-        if: always()
+      - name: Set up isolated Hermes runtime
+        working-directory: soma-ai
+        env:
+          SOMA_RUNTIME: hermes
+          SOMA_RUNTIME_HOME: ${{ runner.temp }}/soma-hermes-runtime
+          SOMA_RUNTIME_CI_SENTINEL: ${{ runner.temp }}/.soma-hermes-runtime-ci-owned
         run: |
-          rm -rf -- "$HEALTH_OS_WORKSPACE"
-          test ! -e "$HEALTH_OS_WORKSPACE"
+          set -euo pipefail
+          if test -e "$SOMA_RUNTIME_HOME" || test -e "$SOMA_RUNTIME_CI_SENTINEL"; then
+            echo "Refusing to reuse an existing runtime path or cleanup marker." >&2
+            exit 1
+          fi
+          printf 'created by this CI job\n' > "$SOMA_RUNTIME_CI_SENTINEL"
+          npm run runtime:setup
+
+      - name: Exercise offline Hermes runtime integration
+        working-directory: soma-ai
+        env:
+          SOMA_RUNTIME: hermes
+          SOMA_RUNTIME_HOME: ${{ runner.temp }}/soma-hermes-runtime
+          RUNNER_TEMP: ${{ runner.temp }}
+          SOMA_RUNTIME_INTEGRATION: "1"
+        run: node --test tests/runtime-integration.test.js
+
+      - name: Remove synthetic workspaces
+        if: always()
+        env:
+          HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
+          HEALTH_OS_CI_SENTINEL: ${{ runner.temp }}/.soma-health-workspace-ci-owned
+          SOMA_RUNTIME_HOME: ${{ runner.temp }}/soma-hermes-runtime
+          SOMA_RUNTIME_CI_SENTINEL: ${{ runner.temp }}/.soma-hermes-runtime-ci-owned
+        run: |
+          if test -f "$HEALTH_OS_CI_SENTINEL"; then
+            rm -rf -- "$HEALTH_OS_WORKSPACE"
+            test ! -e "$HEALTH_OS_WORKSPACE"
+            rm -f -- "$HEALTH_OS_CI_SENTINEL"
+            test ! -e "$HEALTH_OS_CI_SENTINEL"
+          elif test -e "$HEALTH_OS_WORKSPACE"; then
+            echo "Preserving Health OS workspace without this job's ownership marker." >&2
+            exit 1
+          fi
+          if test -f "$SOMA_RUNTIME_CI_SENTINEL"; then
+            rm -rf -- "$SOMA_RUNTIME_HOME"
+            test ! -e "$SOMA_RUNTIME_HOME"
+            rm -f -- "$SOMA_RUNTIME_CI_SENTINEL"
+            test ! -e "$SOMA_RUNTIME_CI_SENTINEL"
+          elif test -e "$SOMA_RUNTIME_HOME"; then
+            echo "Preserving runtime path without this job's ownership marker." >&2
+            exit 1
+          fi

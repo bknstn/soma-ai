@@ -59,7 +59,7 @@ The versioned JSON envelope contains a bounded summary with the plan, recovery s
 
 ## Verify
 
-There are no runtime package dependencies. Run the unit and contract suite with Node 22.13.0 or newer:
+The deterministic Health OS CLI has no npm runtime dependencies. Hermes is an explicit optional runtime installed separately; see the [Hermes guide](hermes.md). Run the unit and contract suite with Node 22.13.0 or newer:
 
 ```sh
 npm test

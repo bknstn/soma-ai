@@ -1,0 +1,4 @@
+[submodule "hermes-agent"]
+	path = third_party/hermes-agent
+	url = https://github.com/NousResearch/hermes-agent.git
+	shallow = true

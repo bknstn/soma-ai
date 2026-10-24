@@ -22,6 +22,8 @@ raw-health-data/
 
 # Hermes local configuration and installed state
 **/.hermes/
+/.runtime/
+/.runtime-home/
 
 # Node and OS output
 node_modules/

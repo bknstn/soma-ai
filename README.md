@@ -11,13 +11,22 @@ The implemented workflow is manual training preparation from data already in the
 
 ## Run
 
-After setup and workspace initialization:
+After configuring Health OS paths and initializing the workspace, install and check the isolated Hermes runtime. Configure a model provider when needed, then start chat:
+
+```sh
+npm run runtime:setup
+npm run runtime:doctor
+npm run runtime:configure # when no model provider is configured
+npm run chat
+```
+
+The deterministic flow also runs directly, without a model provider:
 
 ```sh
 npm start -- prepare-training
 ```
 
-See [setup and verification](docs/getting-started.md), [Hermes setup](docs/hermes.md), [architecture](docs/architecture.md), and [privacy](docs/privacy.md).
+See the [Hermes setup and usage guide](docs/hermes.md) for isolated runtime setup, provider configuration, and Health OS paths.
 
 ## Disclaimer
 

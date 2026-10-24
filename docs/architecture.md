@@ -7,12 +7,15 @@ SOMA owns the local command-line entry point, interaction, response presentation
 ```mermaid
 flowchart LR
   U[User] --> S[SOMA CLI]
-  H[Hermes agent] -->|native skill| S
+  H[Isolated Hermes runtime] -->|native skill| S
   S -->|versioned JSON subprocess call| O[Health OS CLI]
   O --> W[(Private Health OS workspace)]
   O -->|bounded result| S
   S -->|neutral summary| U
+  H -->|configured model requests| P[User-selected provider]
 ```
+
+Hermes source is pinned in `third_party/hermes-agent`. SOMA's runtime adapter selects the manifest under `runtimes/`, installs it into an explicitly configured external `SOMA_RUNTIME_HOME`, and sets Hermes' home to its `hermes-home` child. It does not search for or import an existing Hermes profile. The runtime is swappable through the provider interface; Health OS remains a separate data engine.
 
 SOMA calls Health OS as a subprocess using its public CLI. It passes explicit repository and workspace paths, checks the pinned Health OS revision and schema, validates the JSON envelope, and summarizes only the first-scenario fields. It must not import Health OS `src/*` internals or copy the engine into SOMA. The preparation command is read-only for health-domain records, though SQLite may create or update auxiliary WAL/SHM files in the private workspace.
 
@@ -42,6 +45,14 @@ The supported configuration is explicit and small:
 
 The CLI also accepts path flags that take precedence over environment values. SOMA does not discover private workspaces, select a personal profile by searching filenames, or read owner data from another application.
 
+Hermes adds `SOMA_RUNTIME=hermes` and a new absolute `SOMA_RUNTIME_HOME`, separate from both repositories and any existing `~/.hermes` directory. `npm run runtime:setup` installs the pinned module, `npm run runtime:doctor` checks it without calling Health OS, and `npm run chat` launches it. See [Hermes runtime setup](hermes.md).
+
 ## Runtime and future model layer
 
-Hermes is the intended conversational runtime and invokes the SOMA CLI through the native skill. The first vertical can also run directly from the command line; it is deterministic and requires no model credential. Any future model layer must preserve the same explicit data boundary and report unavailable inputs without guessing.
+Hermes invokes the SOMA CLI through the native skill. The first vertical also runs directly from the command line; it is deterministic and requires no model credential. Chat requires the provider configured in the isolated Hermes home. The runtime adapter preserves the same explicit data boundary and reports unavailable inputs without guessing.
+
+## Replace the runtime
+
+Runtime provider modules live under `src/runtime/providers/`; `createRuntimeManager()` in `src/runtime/manager.js` registers the supported modules. A provider's `name` must match its registry key, `sourceRevision` records its pin, `setup(context)` installs it, `inspect(context)` returns an object whose `ready` boolean describes whether it can launch, and `launch({ action, args, context })` returns `{ executable, args, cwd? }`. The manager starts that argv with `shell: false` and requires any working directory to stay inside the isolated runtime home.
+
+Providers may also define `environment(context)` to add non-protected variables, `forbiddenHomes` to prevent overlap with another profile, `validateLaunch({ action, args, context })` to enforce supported operations, and `chatCredentialEnv` to allowlist secrets for chat only. `RuntimeManager.installProviderDependencies(name)` routes only the provider's validated `provider-dependencies` action; each provider maps that bounded name to its pinned package manager. Provider output is reduced to safe status fields. To add or replace an implementation, register and pin its module before selecting it with `SOMA_RUNTIME=<registered-name>`; changing the variable alone does not install or register a runtime. Run `runtime:setup` for that selected provider and give it a new explicit `SOMA_RUNTIME_HOME`.

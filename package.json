@@ -10,7 +10,12 @@
   },
   "scripts": {
     "start": "node src/cli.js",
+    "runtime:setup": "node src/runtime/cli.js setup",
+    "runtime:doctor": "node src/runtime/cli.js doctor",
+    "runtime:configure": "node src/runtime/cli.js configure",
+    "runtime:provider-deps": "node src/runtime/cli.js provider-deps",
+    "chat": "node src/runtime/cli.js chat",
     "demo": "node examples/demo.mjs",
-    "test": "node --test"
+    "test": "node --test tests/*.test.js"
   }
 }

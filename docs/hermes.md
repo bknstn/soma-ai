@@ -1,49 +1,71 @@
-# Hermes skill setup
+# Hermes runtime
 
-The `skills/soma-health/SKILL.md` folder is a native Hermes skill. SOMA is designed to use Hermes for conversation; its deterministic CLI can also run the training-preparation flow without a model API. The skill exposes only read-only training preparation.
+SOMA includes Hermes as its first swappable conversation runtime. The source is the `third_party/hermes-agent` Git submodule, pinned to upstream release **v0.22.5** at commit [`bf0203a794a07aac3ff764972ab9087baa4e4f4e`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e). The checked-in [runtime manifest](../runtimes/hermes/manifest.json) records the source and isolated install contract. Do not advance the submodule with `git submodule update --remote`; review a runtime update as a pinned source change.
 
-## Install
+## Requirements and checkout
 
-After `bknstn/soma-ai` is available on GitHub, inspect and install the skill directly from the repository:
-
-```sh
-hermes skills inspect bknstn/soma-ai/skills/soma-health
-hermes skills install bknstn/soma-ai/skills/soma-health
-hermes skills list
-```
-
-Hermes documents direct GitHub path installs and the `SKILL.md` format in its [Skills System](https://github.com/NousResearch/hermes-agent/blob/bda3a363e9695e3f63fce4a7ca85ba17b5fecb61/website/docs/user-guide/features/skills.md) and [Creating Skills](https://github.com/NousResearch/hermes-agent/blob/bda3a363e9695e3f63fce4a7ca85ba17b5fecb61/website/docs/developer-guide/creating-skills.md) guides. For a fork, replace `bknstn` with the owner of your fork.
-
-Installing a skill adds it to the Hermes profile's skill library. It does not install SOMA or Health OS, initialize a workspace, or configure a model provider.
-
-For local development before the GitHub path is available, run this from the SOMA checkout root and copy the skill only when the destination does not already exist:
+The installer targets macOS and Linux and requires Bash. Use Git, Node.js 22.13.0 or newer, and system Python 3.11 through 3.14 for bootstrap. The setup script installs the pinned `uv` and Python 3.14 under the isolated runtime home; it does not require a globally installed Hermes or `uv`. From an existing SOMA checkout, initialize the pinned source:
 
 ```sh
-export SOMA_REPO="$PWD"
-test ! -e "$HOME/.hermes/skills/soma-health" && \
-  mkdir -p "$HOME/.hermes/skills/soma-health" && \
-  cp "$SOMA_REPO/skills/soma-health/SKILL.md" "$HOME/.hermes/skills/soma-health/SKILL.md"
+git submodule update --init --recursive
 ```
 
-## Configure paths for Hermes
+The source is checked out under `third_party/hermes-agent`. SOMA does not install a global `hermes` command.
 
-The skill needs read access to the SOMA checkout, the pinned Health OS checkout, and the private workspace. Export these paths in the environment that starts Hermes:
+## Isolated setup
+
+Choose a new absolute runtime home outside the SOMA and Health OS repositories. Do not reuse `~/.hermes`, another Hermes profile, or a directory containing an existing installation or personal data.
 
 ```sh
-export SOMA_REPO="$HOME/src/soma-ai"
-export HEALTH_OS_REPO="$HOME/src/health-os-soma"
-export HEALTH_OS_WORKSPACE="$HOME/.local/share/soma/workspace"
-hermes
+export SOMA_RUNTIME=hermes
+export SOMA_RUNTIME_HOME="$HOME/.local/share/soma/hermes-runtime"
+npm run runtime:setup
+npm run runtime:doctor
 ```
 
-The skill declares these variables and the `terminal` toolset in its frontmatter so Hermes can pass set values to the terminal tool. Export the paths before starting Hermes to avoid setup prompts. The skill does not issue Hermes configuration commands. The workspace must remain outside both repositories.
+`runtime:setup` bootstraps the pinned `uv` 0.13.5, Python 3.14, and Hermes dependencies into the isolated runtime home. The managed layout includes `hermes-home` for Hermes settings, `hermes-tools` for runtime tools, `user-home` for `HOME` and XDG paths, `working-directory` for Hermes launches, and separate Python and uv cache locations. Setup may download the pinned runtime dependencies; it does not call a model provider, import an existing Hermes home, initialize Health OS, or read Health OS records. `runtime:doctor` checks the selected runtime and pin without calling Health OS or requiring provider credentials.
 
-Use a Hermes terminal backend that can read the paths on the machine where the checkouts and workspace live. An isolated or remote backend may not be able to access host paths. If it cannot access all three paths, stop; do not copy private health data into a different backend as a workaround.
+Keep the same `SOMA_RUNTIME` and `SOMA_RUNTIME_HOME` values for setup, checks, and chat. They can be placed in a local `.env` copied from [.env.example](../.env.example); SOMA does not load `.env` files automatically, so export or source the file in the shell before running a command.
 
-Hermes itself requires whatever provider configuration the user selects for chat. SOMA's deterministic CLI flow does not require a model key.
+## Configure a model provider
 
-## Use
+`SOMA_RUNTIME=hermes` selects the agent runtime. It is separate from Hermes' model provider and model selection. If no model is configured, run the managed configuration command:
 
-Initialize and inspect the workspace explicitly with the SOMA CLI first. Then start a Hermes session whose terminal can read the configured paths and invoke `/soma-health` with a request such as “Prepare training for now” or “Prepare training for 2026-10-24T08:00:00+02:00.” The skill calls `prepare-training` only; it does not initialize, sync, import, edit, or migrate records.
+```sh
+npm run runtime:configure
+```
 
-The skill has not been verified against a live Hermes installation. Its loader format and install command were checked against the pinned upstream documentation linked above.
+This opens Hermes' provider and model flow with the isolated `hermes-home`. Enter credentials only in the interactive provider prompt; do not pass API keys as command-line arguments or export an existing account's secrets into the runtime. Credentials may also be supplied through the adapter's allowlisted provider environment variables for chat only; setup and doctor never inherit them. Configured credentials are stored in the isolated runtime home, not in `~/.hermes`, the SOMA repository, or the Health OS workspace.
+
+Hermes needs an optional SDK extra for the native **Anthropic**, **AWS Bedrock**, and **Google Vertex AI** providers. After `runtime:setup` and before configuring one of those providers, install its pinned extra into the managed runtime:
+
+```sh
+npm run runtime:provider-deps -- anthropic # or bedrock or vertex
+```
+
+This command accepts only those three names, installs through Hermes' pinned package manager, and uses no model credentials or Health OS paths. OpenAI-compatible providers use Hermes' core SDK and need no extra. This optional SDK selection is separate from `SOMA_RUNTIME`, which selects the conversation-runtime module.
+
+Use the provider selector again to change providers. That changes the LLM connection inside Hermes; changing `SOMA_RUNTIME` selects a different SOMA conversation-runtime module. The current module is Hermes. For available providers and their setup requirements, see the pinned upstream [provider guide](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/website/docs/integrations/providers.md) and [configuration guide](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/website/docs/user-guide/configuration.md).
+
+## Start SOMA
+
+Prepare Health OS separately by following [the checkout, path configuration, and workspace initialization guide](getting-started.md). Health OS remains an independent data engine; Hermes setup and provider configuration do not initialize or read its workspace. After initialization, start the conversational runtime:
+
+```sh
+npm run chat
+```
+
+Use `/soma-health` to prepare the training scenario. The Hermes skill calls SOMA's bounded JSON interface and does not initialize, write, import, sync, or migrate Health OS records. Review [the privacy model](privacy.md) before including private health context in a provider conversation.
+
+For an offline native-skill check, use `node src/runtime/cli.js skills list`. It reads the local skill list from the isolated Hermes home and does not contact a model provider or remote skill registry.
+
+The deterministic command-line flow works independently of Hermes and any model provider:
+
+```sh
+node src/cli.js doctor
+node src/cli.js prepare-training --as-of 2026-10-24T08:00:00+02:00 --json
+```
+
+## Verification
+
+`npm test` checks the runtime manager, provider boundary, and synthetic Health OS integration. CI installs into a new temporary `SOMA_RUNTIME_HOME`, runs runtime doctor, exercises the actual Hermes help and native skill loader without making a model request, and removes the runtime home even after failure. No live model account or provider key is used in tests.
