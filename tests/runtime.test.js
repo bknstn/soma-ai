@@ -21,17 +21,22 @@ function temporaryRoot(t) {
   return root;
 }
 
-function fakeProvider({ onSetup = () => {}, onInspect = () => {}, onLaunch = () => {}, forbiddenHomes = [] } = {}) {
+function fakeProvider({ onSetup = () => {}, onInspect = () => {}, onLaunch = () => {}, forbiddenHomes = [],
+  gatewayCredentialEnv = [] } = {}) {
   return {
     name: 'fake-agent',
     sourceRevision: 'abc123def456',
     chatCredentialEnv: ['FAKE_AGENT_KEY'],
+    gatewayCredentialEnv,
     forbiddenHomes,
     environment({ runtimeHome }) {
       return { FAKE_AGENT_HOME: path.join(runtimeHome, 'fake-home') };
     },
     async setup(context) { onSetup(context); return { ready: true, status: 'ready' }; },
-    async inspect(context) { onInspect(context); return { ready: true, status: 'ready' }; },
+    async inspect(context) {
+      const result = await onInspect(context);
+      return result && typeof result === 'object' ? result : { ready: true, status: 'ready' };
+    },
     async launch(args) { return onLaunch(args); }
   };
 }
@@ -66,13 +71,20 @@ function hermesFixture(t) {
       user_home: 'user-home',
       working_directory: 'working-directory',
       hermes_home: 'hermes-home',
+      managed_dir: 'hermes-managed',
       runtime_dir: 'hermes-tools',
       python_file: 'hermes-python.txt'
     },
     commands: {
       help: ['--help'],
       chat: ['chat', '--cli'],
-      list_local_skills: ['skills', 'list', '--source', 'local']
+      list_local_skills: ['skills', 'list', '--source', 'local'],
+      gateway: ['gateway', 'run', '--external-supervisor']
+    },
+    gateway_dependencies: {
+      extra: 'telegram',
+      telegram_package: 'python-telegram-bot',
+      telegram_version: '22.8'
     }
   }, null, 2)}\n`);
   return { root, repo, source, runtime };
@@ -87,6 +99,8 @@ function validHermesCheck(overrides = {}) {
     python_version: '3.14.9',
     cli_help: true,
     skill_loaded: true,
+    telegram_sdk: true,
+    gateway_authz: true,
     error: null,
     ...overrides
   }) + '\n';
@@ -175,6 +189,78 @@ test('provider-neutral manager isolates env and allows provider-owned argv', asy
   assert.equal(spawnCalls[1].options.env.FAKE_AGENT_KEY, undefined);
 });
 
+test('managed gateway passes only bounded credentials and forwards clean shutdown signals', async (t) => {
+  const root = temporaryRoot(t);
+  const runtimeHome = path.join(root, 'runtime');
+  const healthRepo = path.join(root, 'health-os');
+  const workspace = path.join(root, 'health-workspace');
+  fs.mkdirSync(healthRepo);
+  fs.mkdirSync(workspace);
+  const childCalls = [];
+  const signalSource = new EventEmitter();
+  let child;
+  const provider = fakeProvider({
+    gatewayCredentialEnv: ['FAKE_BOT_TOKEN', 'FAKE_ALLOWED_USERS'],
+    onLaunch: ({ action, args, context }) => {
+      assert.equal(action, 'gateway');
+      assert.deepEqual(args, []);
+      assert.equal(context.env.FAKE_BOT_TOKEN, 'synthetic-bot-token');
+      assert.equal(context.env.FAKE_ALLOWED_USERS, '73142');
+      assert.equal(context.env.FAKE_AGENT_KEY, 'synthetic-model-key');
+      assert.equal(context.env.STRAY_CHANNEL_TOKEN, undefined);
+      assert.equal(context.env.OPENAI_API_KEY, undefined);
+      assert.equal(context.env.HEALTH_OS_REPO, healthRepo);
+      assert.equal(context.env.HEALTH_OS_WORKSPACE, workspace);
+      assert.equal(context.env.HOME, path.join(fs.realpathSync(runtimeHome), 'user-home'));
+      return {
+        executable: process.execPath,
+        args: ['gateway-entry'],
+        cwd: path.join(context.runtimeHome, 'working-directory')
+      };
+    }
+  });
+  const manager = new RuntimeManager({
+    runtime: 'fake-agent', runtimeHome, repoRoot,
+    env: {
+      PATH: process.env.PATH,
+      HEALTH_OS_REPO: healthRepo,
+      HEALTH_OS_WORKSPACE: workspace,
+      FAKE_AGENT_KEY: 'synthetic-model-key',
+      FAKE_BOT_TOKEN: 'synthetic-bot-token',
+      FAKE_ALLOWED_USERS: '73142',
+      STRAY_CHANNEL_TOKEN: 'must-not-pass',
+      OPENAI_API_KEY: 'not-allowlisted'
+    },
+    providers: { 'fake-agent': provider },
+    signalSource,
+    spawnProcess(executable, args, options) {
+      childCalls.push({ executable, args, options });
+      child = new EventEmitter();
+      child.killedSignals = [];
+      child.kill = (signal) => { child.killedSignals.push(signal); return true; };
+      return child;
+    }
+  });
+  await manager.setup();
+
+  const gateway = manager.gateway();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(childCalls.length, 1);
+  assert.deepEqual(childCalls[0].args, ['gateway-entry']);
+  assert.equal(childCalls[0].options.shell, false);
+  assert.equal(childCalls[0].options.env.SOMA_RUNTIME_OPERATION, 'gateway');
+  assert.equal(childCalls[0].options.env.STRAY_CHANNEL_TOKEN, undefined);
+  assert.equal(childCalls[0].options.env.OPENAI_API_KEY, undefined);
+  assert.equal(signalSource.listenerCount('SIGTERM'), 1);
+
+  signalSource.emit('SIGTERM');
+  assert.deepEqual(child.killedSignals, ['SIGTERM']);
+  child.emit('close', null, 'SIGTERM');
+  assert.equal(await gateway, 0);
+  assert.equal(signalSource.listenerCount('SIGTERM'), 0);
+  assert.equal(signalSource.listenerCount('SIGINT'), 0);
+});
+
 test('runtime setup refuses populated unmanaged home', async (t) => {
   const root = temporaryRoot(t);
   const runtimeHome = path.join(root, 'not-managed');
@@ -190,6 +276,29 @@ test('runtime setup refuses populated unmanaged home', async (t) => {
     return true;
   });
   assert.equal(fs.readFileSync(path.join(runtimeHome, 'keep.txt'), 'utf8'), 'synthetic user file');
+});
+
+test('runtime setup reports only bounded readiness status codes', async (t) => {
+  const root = temporaryRoot(t);
+  const failed = new RuntimeManager({
+    runtime: 'fake-agent', runtimeHome: path.join(root, 'failed'), env: {}, repoRoot,
+    providers: { 'fake-agent': fakeProvider({ onInspect: () => ({ ready: false, status: 'gateway_authz_check_failed' }) }) }
+  });
+  await assert.rejects(failed.setup(), (error) => {
+    assert.equal(error.code, 'SOMA_RUNTIME_SETUP_INCOMPLETE');
+    assert.match(error.message, /gateway_authz_check_failed/);
+    return true;
+  });
+
+  const unsafe = new RuntimeManager({
+    runtime: 'fake-agent', runtimeHome: path.join(root, 'unsafe'), env: {}, repoRoot,
+    providers: { 'fake-agent': fakeProvider({ onInspect: () => ({ ready: false, status: 'sk-secret-with-dashes' }) }) }
+  });
+  await assert.rejects(unsafe.setup(), (error) => {
+    assert.equal(error.code, 'SOMA_RUNTIME_SETUP_INCOMPLETE');
+    assert.doesNotMatch(error.message, /sk-secret/);
+    return true;
+  });
 });
 
 test('runtime home cannot be a symlink and managed HOME cannot escape after setup', async (t) => {
@@ -274,6 +383,20 @@ test('runtime CLI accepts command options after the command and converts rejecte
   assert.equal(launchCode, 1);
   assert.match(stderr.content, /SOMA_RUNTIME_NOT_READY/);
   assert.equal(stdout.content, '');
+
+  let gatewayCalls = 0;
+  const gatewayCode = await runRuntimeCli(['gateway', '--runtime', 'fake-agent', '--runtime-home', '/tmp/runtime-cli-test-home'], {
+    stdout, stderr, env: {},
+    manager: { async gateway() { gatewayCalls += 1; return 0; } }
+  });
+  assert.equal(gatewayCode, 0);
+  assert.equal(gatewayCalls, 1);
+  const unsafeGatewayCode = await runRuntimeCli(['gateway', '--replace'], {
+    stdout, stderr, env: {},
+    manager: { async gateway() { assert.fail('gateway flags must be rejected before manager call'); } }
+  });
+  assert.equal(unsafeGatewayCode, 2);
+  assert.match(stderr.content, /SOMA_RUNTIME_USAGE/);
 
   let helpCalls = 0;
   const helpCode = await runRuntimeCli(['chat', '--help'], {
@@ -392,8 +515,133 @@ test('Hermes provider maps generic skills action to pinned local-only CLI argv',
   });
   const providerEnv = provider.environment({ runtimeHome });
   assert.equal(providerEnv.HERMES_HOME, path.join(runtimeHome, 'hermes-home'));
+  assert.equal(providerEnv.HERMES_MANAGED_DIR, path.join(runtimeHome, 'hermes-managed'));
   assert.equal(providerEnv.HERMES_RUNTIME_DIR, path.join(runtimeHome, 'hermes-tools'));
   assert.equal(providerEnv.HERMES_DISABLE_LAZY_INSTALLS, '1');
+});
+
+test('Hermes gateway launch is Telegram-only, isolated, and externally supervised', async (t) => {
+  const fixture = hermesFixture(t);
+  const requestedRuntimeHome = path.join(fixture.root, 'runtime-home');
+  for (const name of ['user-home', 'working-directory', 'hermes-home', 'hermes-managed', 'hermes-tools']) {
+    fs.mkdirSync(path.join(requestedRuntimeHome, name), { recursive: true });
+  }
+  const runtimeHome = fs.realpathSync(requestedRuntimeHome);
+  const pythonPath = path.join(runtimeHome, 'hermes-tools', 'python-3.14', 'bin', 'python3');
+  fs.mkdirSync(path.dirname(pythonPath), { recursive: true });
+  fs.writeFileSync(pythonPath, 'synthetic interpreter');
+  fs.chmodSync(pythonPath, 0o700);
+  fs.writeFileSync(path.join(runtimeHome, 'hermes-python.txt'), `${pythonPath}\n`);
+  const calls = [];
+  const provider = createHermesProvider({
+    repoRoot: fixture.repo,
+    spawnSyncImpl(executable, args, options) {
+      calls.push({ executable, args, options });
+      return { status: 0, stdout: '{"ok":true}\n', stderr: '' };
+    }
+  });
+  const env = {
+    ...provider.environment({ runtimeHome }),
+    HOME: path.join(runtimeHome, 'user-home'),
+    SOMA_RUNTIME_HOME: runtimeHome,
+    TELEGRAM_BOT_TOKEN: '123456:synthetic_token_for_gateway_tests',
+    TELEGRAM_ALLOWED_USERS: '73142,88109',
+    OPENAI_API_KEY: 'synthetic-model-key'
+  };
+  const context = { runtimeHome, env };
+
+  provider.validateLaunch({ action: 'gateway', args: [] });
+  const launch = await provider.launch({ action: 'gateway', args: [], context });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executable, fs.realpathSync(pythonPath));
+  assert.deepEqual(calls[0].args[0], '-c');
+  assert.match(calls[0].args[1], /non_telegram_platform_configured/);
+  assert.match(calls[0].args[1], /unauthorized_dm_behavior_not_ignore/);
+  assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.cwd, fixture.source);
+  assert.equal(calls[0].options.env.HERMES_HOME, path.join(runtimeHome, 'hermes-home'));
+  assert.equal(calls[0].options.env.HERMES_MANAGED_DIR, path.join(runtimeHome, 'hermes-managed'));
+  assert.equal(calls[0].options.env.TELEGRAM_ALLOWED_USERS, '73142,88109');
+  assert.equal(launch.executable, fs.realpathSync(pythonPath));
+  assert.deepEqual(launch.args, [path.join(fixture.source, 'hermes'), 'gateway', 'run', '--external-supervisor']);
+  assert.doesNotMatch(launch.args.join(' '), /--force|--replace/);
+  assert.equal(launch.cwd, path.join(runtimeHome, 'working-directory'));
+
+  await assert.rejects(provider.launch({
+    action: 'gateway', args: [], context: { ...context, env: { ...env, TELEGRAM_ALLOWED_USERS: '*' } }
+  }), { code: 'SOMA_HERMES_GATEWAY_TELEGRAM_ALLOWLIST_REQUIRED' });
+  await assert.rejects(provider.launch({
+    action: 'gateway', args: [], context: { ...context, env: { ...env, TELEGRAM_ALLOWED_USERS: '73142,-88109' } }
+  }), { code: 'SOMA_HERMES_GATEWAY_TELEGRAM_ALLOWLIST_REQUIRED' });
+  await assert.rejects(provider.launch({
+    action: 'gateway', args: [], context: { ...context, env: { ...env, GATEWAY_ALLOW_ALL_USERS: 'true' } }
+  }), { code: 'SOMA_HERMES_GATEWAY_ALLOW_ALL_BLOCKED' });
+});
+
+test('Hermes gateway refuses hidden secret files, named profiles, and widened config', async (t) => {
+  const fixture = hermesFixture(t);
+  const requestedRuntimeHome = path.join(fixture.root, 'runtime-home');
+  for (const name of ['user-home', 'working-directory', 'hermes-home', 'hermes-managed', 'hermes-tools']) {
+    fs.mkdirSync(path.join(requestedRuntimeHome, name), { recursive: true });
+  }
+  const runtimeHome = fs.realpathSync(requestedRuntimeHome);
+  const pythonPath = path.join(runtimeHome, 'hermes-tools', 'python-3.14', 'bin', 'python3');
+  fs.mkdirSync(path.dirname(pythonPath), { recursive: true });
+  fs.writeFileSync(pythonPath, 'synthetic interpreter');
+  fs.chmodSync(pythonPath, 0o700);
+  fs.writeFileSync(path.join(runtimeHome, 'hermes-python.txt'), `${pythonPath}\n`);
+  let configResult = { status: 0, stdout: '{"ok":true}\n', stderr: '' };
+  const calls = [];
+  const provider = createHermesProvider({
+    repoRoot: fixture.repo,
+    spawnSyncImpl(executable, args, options) {
+      calls.push({ executable, args, options });
+      return configResult;
+    }
+  });
+  const env = {
+    ...provider.environment({ runtimeHome }),
+    HOME: path.join(runtimeHome, 'user-home'),
+    SOMA_RUNTIME_HOME: runtimeHome,
+    TELEGRAM_BOT_TOKEN: '123456:synthetic_token_for_gateway_tests',
+    TELEGRAM_ALLOWED_USERS: '73142'
+  };
+  const context = { runtimeHome, env };
+  const launch = () => provider.launch({ action: 'gateway', args: [], context });
+
+  fs.writeFileSync(path.join(runtimeHome, 'hermes-home', '.env'), 'DISCORD_BOT_TOKEN=synthetic\n');
+  await assert.rejects(launch(), { code: 'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED' });
+  assert.equal(calls.length, 0, 'hidden env files must be rejected before config loader execution');
+  fs.rmSync(path.join(runtimeHome, 'hermes-home', '.env'));
+
+  fs.mkdirSync(path.join(runtimeHome, 'hermes-home', 'profiles', 'buddy-profile'), { recursive: true });
+  await assert.rejects(launch(), { code: 'SOMA_HERMES_GATEWAY_PROFILES_BLOCKED' });
+  fs.rmSync(path.join(runtimeHome, 'hermes-home', 'profiles'), { recursive: true });
+
+  configResult = { status: 0, stdout: '{"ok":false,"code":"non_telegram_platform_configured"}\n', stderr: '' };
+  await assert.rejects(launch(), { code: 'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED' });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].args[1], /^import hermes_bootstrap\n/,
+    'gateway config preflight must enter Hermes PM environment before imports');
+});
+
+test('pinned Telegram dependency remains native and offline-verifiable', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.gateway_dependencies, {
+    extra: 'telegram',
+    telegram_package: 'python-telegram-bot',
+    telegram_version: '22.8'
+  });
+  assert.match(fs.readFileSync(path.join(repoRoot, 'third_party/hermes-agent/pyproject.toml'), 'utf8'),
+    /telegram = \["python-telegram-bot\[webhooks\]==22\.8"\]/);
+  assert.match(fs.readFileSync(path.join(repoRoot, 'third_party/hermes-agent/uv.lock'), 'utf8'),
+    /name = "python-telegram-bot"\nversion = "22\.8"/);
+  const checkScript = fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/check.sh'), 'utf8');
+  assert.match(checkScript, /import hermes_bootstrap; import telegram;/,
+    'Telegram dependency probe must activate Hermes PM environment');
+  assert.match(checkScript, /import hermes_bootstrap\nimport os\nfrom gateway\.authz_mixin/,
+    'authorization probe must activate Hermes PM environment');
+  assert.match(checkScript, /gateway_authz_check_failed/);
 });
 
 test('provider dependency installs stay managed, credential-free, and allowlisted', async (t) => {

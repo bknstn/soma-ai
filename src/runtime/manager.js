@@ -220,6 +220,13 @@ function validateProvider(provider, runtimeName) {
       code: 'SOMA_RUNTIME_PROVIDER_INVALID'
     });
   }
+  const gatewayCredentials = provider.gatewayCredentialEnv || [];
+  if (!Array.isArray(gatewayCredentials) || gatewayCredentials.some((key) => typeof key !== 'string' ||
+      !/^[A-Z][A-Z0-9_]*$/.test(key) || SAFE_ENV_KEYS.includes(key) || ISOLATION_ENV_KEY.test(key))) {
+    throw new RuntimeError(`Runtime provider "${runtimeName}" has an invalid gateway credential allowlist.`, {
+      code: 'SOMA_RUNTIME_PROVIDER_INVALID'
+    });
+  }
   if (provider.forbiddenHomes !== undefined && typeof provider.forbiddenHomes !== 'function' &&
       (!Array.isArray(provider.forbiddenHomes) || provider.forbiddenHomes.some((home) => typeof home !== 'string' || !path.isAbsolute(home)))) {
     throw new RuntimeError(`Runtime provider "${runtimeName}" has an invalid forbidden-home policy.`, {
@@ -253,8 +260,10 @@ export class RuntimeManager {
   #provider;
   #repoRoot;
   #spawnProcess;
+  #signalSource;
 
-  constructor({ runtime, runtimeHome, env = process.env, providers = {}, repoRoot = moduleRoot, spawnProcess = spawn } = {}) {
+  constructor({ runtime, runtimeHome, env = process.env, providers = {}, repoRoot = moduleRoot, spawnProcess = spawn,
+    signalSource = process } = {}) {
     this.#runtimeName = runtime ?? env.SOMA_RUNTIME ?? 'hermes';
     if (typeof this.#runtimeName !== 'string' || !SAFE_SLUG.test(this.#runtimeName)) {
       throw new RuntimeError('SOMA_RUNTIME must be a valid provider name.', { code: 'SOMA_RUNTIME_NAME_INVALID' });
@@ -273,7 +282,11 @@ export class RuntimeManager {
     if (typeof spawnProcess !== 'function') {
       throw new RuntimeError('The runtime process runner is invalid.', { code: 'SOMA_RUNTIME_PROVIDER_INVALID' });
     }
+    if (!signalSource || typeof signalSource.on !== 'function' || typeof signalSource.off !== 'function') {
+      throw new RuntimeError('The runtime signal source is invalid.', { code: 'SOMA_RUNTIME_PROVIDER_INVALID' });
+    }
     this.#spawnProcess = spawnProcess;
+    this.#signalSource = signalSource;
   }
 
   get runtimeName() {
@@ -311,7 +324,11 @@ export class RuntimeManager {
       const result = await this.#provider.setup(context);
       const inspection = await this.#provider.inspect(context);
       if (!inspection || inspection.ready !== true) {
-        throw new RuntimeError('Runtime setup finished without a ready status.', { code: 'SOMA_RUNTIME_SETUP_INCOMPLETE' });
+        const status = typeof inspection?.status === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(inspection.status)
+          ? ` (${inspection.status})` : '';
+        throw new RuntimeError(`Runtime setup finished without a ready status${status}.`, {
+          code: 'SOMA_RUNTIME_SETUP_INCOMPLETE'
+        });
       }
       writeMarker(context.runtimeHome, {
         schema_version: RUNTIME_HOME_SCHEMA_VERSION,
@@ -369,6 +386,10 @@ export class RuntimeManager {
     return this.#launch('chat', [], { requireHealthConfig: true });
   }
 
+  async gateway() {
+    return this.#launch('gateway', [], { requireHealthConfig: true, forwardSignals: true });
+  }
+
   async help() {
     return this.#launch('help', [], { requireHealthConfig: false });
   }
@@ -393,7 +414,7 @@ export class RuntimeManager {
     return this.#launch('skills', [], { requireHealthConfig: false });
   }
 
-  async #launch(action, args, { requireHealthConfig }) {
+  async #launch(action, args, { requireHealthConfig, forwardSignals = false }) {
     const context = this.#context({ operation: action, requireHealthConfig });
     const state = await this.inspect();
     if (!state.ready) {
@@ -405,7 +426,10 @@ export class RuntimeManager {
       await this.#provider.validateLaunch({ action, args, context });
     }
     const spec = validateLaunchSpec(await this.#provider.launch({ action, args, context }), context.runtimeHome);
-    return spawnInherited(spec, context.env, action, this.#spawnProcess);
+    return spawnInherited(spec, context.env, action, this.#spawnProcess, {
+      signalSource: this.#signalSource,
+      forwardSignals
+    });
   }
 
   #context({ operation, requireHealthConfig = false }) {
@@ -484,8 +508,11 @@ export class RuntimeManager {
       env.HEALTH_OS_REPO = configuredHealthOsRepo;
       env.HEALTH_OS_WORKSPACE = this.#env.HEALTH_OS_WORKSPACE;
     }
-    if (operation === 'chat') {
-      for (const key of this.#provider.chatCredentialEnv || []) {
+    if (operation === 'chat' || operation === 'gateway') {
+      const credentialEnv = operation === 'gateway'
+        ? [...new Set([...(this.#provider.chatCredentialEnv || []), ...(this.#provider.gatewayCredentialEnv || [])])]
+        : this.#provider.chatCredentialEnv || [];
+      for (const key of credentialEnv) {
         if (typeof this.#env[key] === 'string' && this.#env[key] !== '') env[key] = this.#env[key];
       }
     }
@@ -504,13 +531,14 @@ export class RuntimeManager {
 function safeResult(result) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return {};
   const sanitized = {};
-  for (const key of ['status', 'ready', 'version', 'source_revision', 'python_version', 'installed', 'skill_installed']) {
+  for (const key of ['status', 'ready', 'version', 'source_revision', 'python_version', 'installed', 'skill_installed',
+    'telegram_sdk', 'gateway_authz']) {
     if (typeof result[key] === 'string' || typeof result[key] === 'boolean' || Number.isFinite(result[key])) sanitized[key] = result[key];
   }
   return sanitized;
 }
 
-function spawnInherited(spec, env, action, spawnProcess) {
+function spawnInherited(spec, env, action, spawnProcess, { signalSource = process, forwardSignals = false } = {}) {
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -527,13 +555,37 @@ function spawnInherited(spec, env, action, spawnProcess) {
       }));
       return;
     }
-    child.once('error', (error) => reject(new RuntimeError(`Could not start the ${action} runtime operation.`, {
+    let settled = false;
+    let forwardedSignal = null;
+    const onSigint = () => forwardSignal('SIGINT');
+    const onSigterm = () => forwardSignal('SIGTERM');
+    const cleanup = () => {
+      if (forwardSignals) {
+        signalSource.off('SIGINT', onSigint);
+        signalSource.off('SIGTERM', onSigterm);
+      }
+    };
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const forwardSignal = (signal) => {
+      forwardedSignal = signal;
+      try { child.kill(signal); } catch { /* the close event reports the child's final state */ }
+    };
+    if (forwardSignals) {
+      signalSource.on('SIGINT', onSigint);
+      signalSource.on('SIGTERM', onSigterm);
+    }
+    child.once('error', (error) => finish(reject, new RuntimeError(`Could not start the ${action} runtime operation.`, {
       code: 'SOMA_RUNTIME_SPAWN_FAILED', cause: error
     })));
     child.once('close', (code, signal) => {
-      if (code === 0) resolve(0);
-      else if (code !== null) resolve(code);
-      else reject(new RuntimeError(`The ${action} runtime operation exited on ${signal || 'an unknown signal'}.`, {
+      if (code === 0 || (forwardedSignal && signal === forwardedSignal)) finish(resolve, 0);
+      else if (code !== null) finish(resolve, code);
+      else finish(reject, new RuntimeError(`The ${action} runtime operation exited on ${signal || 'an unknown signal'}.`, {
         code: 'SOMA_RUNTIME_EXITED', exitCode: 1
       }));
     });

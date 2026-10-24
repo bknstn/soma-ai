@@ -11,6 +11,7 @@ Commands:
   setup      Install the pinned agent runtime into an isolated runtime home
   doctor     Inspect the selected runtime without contacting Health OS
   chat       Start the selected runtime's local interactive chat
+  gateway    Start the managed messaging gateway (Telegram only)
   configure  Open the selected runtime's model provider configuration
   provider-deps <name>  Install an optional SDK for anthropic, bedrock, or vertex
   skills     List locally installed skills (read-only)
@@ -61,9 +62,9 @@ function parseArgs(argv) {
     index += 1;
   }
 
-  if (!command) throw new RuntimeCliError('Choose setup, doctor, chat, configure, provider-deps, or skills.');
-  if (!['setup', 'doctor', 'chat', 'configure', 'provider-deps', 'skills'].includes(command)) {
-    throw new RuntimeCliError('Choose setup, doctor, chat, configure, provider-deps, or skills.');
+  if (!command) throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, provider-deps, or skills.');
+  if (!['setup', 'doctor', 'chat', 'gateway', 'configure', 'provider-deps', 'skills'].includes(command)) {
+    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, provider-deps, or skills.');
   }
   if (command === 'chat') {
     if (extra.length === 1 && (extra[0] === '--help' || extra[0] === '-h')) options.chatHelp = true;
@@ -141,10 +142,11 @@ export async function runRuntimeCli(argv, dependencies = {}) {
       return 0;
     }
     if (command === 'chat') return await (parsed.chatHelp ? manager.help() : manager.chat());
+    if (command === 'gateway') return await manager.gateway();
     if (command === 'configure') return await manager.configure();
     if (command === 'provider-deps') return await manager.installProviderDependencies(parsed.providerName);
     if (command === 'skills') return await manager.skills({ action: 'list' });
-    throw new RuntimeCliError('Choose setup, doctor, chat, configure, provider-deps, or skills.');
+    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, provider-deps, or skills.');
   } catch (error) {
     return fail(command, json, error, stdout, stderr);
   }

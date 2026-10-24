@@ -83,6 +83,7 @@ jobs:
         env:
           SOMA_RUNTIME: hermes
           SOMA_RUNTIME_HOME: ${{ runner.temp }}/soma-hermes-runtime
+          SOMA_RUNTIME_CI_SENTINEL: ${{ runner.temp }}/.soma-hermes-runtime-ci-owned
           RUNNER_TEMP: ${{ runner.temp }}
           SOMA_RUNTIME_INTEGRATION: "1"
         run: node --test tests/runtime-integration.test.js

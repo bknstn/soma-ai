@@ -20,6 +20,7 @@
     "user_home": "user-home",
     "working_directory": "working-directory",
     "hermes_home": "hermes-home",
+    "managed_dir": "hermes-managed",
     "runtime_dir": "hermes-tools",
     "python_file": "hermes-python.txt",
     "uv_cache": "uv-cache",
@@ -34,6 +35,12 @@
     "entrypoint": "third_party/hermes-agent/hermes",
     "help": ["--help"],
     "chat": ["chat", "--cli"],
-    "list_local_skills": ["skills", "list", "--source", "local"]
+    "list_local_skills": ["skills", "list", "--source", "local"],
+    "gateway": ["gateway", "run", "--external-supervisor"]
+  },
+  "gateway_dependencies": {
+    "extra": "telegram",
+    "telegram_package": "python-telegram-bot",
+    "telegram_version": "22.8"
   }
 }
