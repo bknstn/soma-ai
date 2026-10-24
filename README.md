@@ -18,3 +18,7 @@ npm start -- prepare-training
 ```
 
 See [setup and verification](docs/getting-started.md), [Hermes setup](docs/hermes.md), [architecture](docs/architecture.md), and [privacy](docs/privacy.md).
+
+## Disclaimer
+
+Soma AI and its outputs have not been clinically validated. The software is for personal planning, not medical advice, diagnosis, or treatment. AI-generated output may be incomplete or wrong; independently verify it before acting, and consult a qualified clinician for medical decisions. Use it at your own risk. The software is provided “as is”; to the fullest extent permitted by applicable law, the authors disclaim warranties and liability as described in the [MIT License](LICENSE).
