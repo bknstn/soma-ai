@@ -4,13 +4,39 @@ This guide describes a reusable Linux deployment of SOMA's managed Telegram gate
 
 Use a dedicated operating-system account when isolation from other applications is required. Separate directories under a shared account do not prevent that account's processes from accessing each other's files.
 
+## Configuration locations
+
+Keep local connection settings and server configuration in the following locations. The files committed to Git contain reusable examples only:
+
+| Settings | Private location | Example in this repository |
+| --- | --- | --- |
+| SSH alias, host, user, and path to an existing key | Local `~/.ssh/config`; the key stays outside both repositories | SSH example below |
+| Local checkout, workspace, runtime paths, and optional `SOMA_VPS_SSH_HOST` | Local `.env`, explicitly loaded in the shell | [`.env.example`](../.env.example) |
+| Server runtime and Health OS paths, provider API key, Telegram bot token, and allowed user IDs | Server `config/gateway.env` outside both source checkouts, mode `0600` | [`gateway.env.example`](../deploy/systemd/gateway.env.example) |
+| Gateway model, provider selection, and Telegram behavior | Server `$SOMA_RUNTIME_HOME/hermes-home/config.yaml` | [Managed gateway configuration](hermes.md#managed-telegram-gateway) |
+| Source, Node, and private environment-file paths for the service | Server systemd user-service unit | [`hermes-soma.service`](../deploy/systemd/hermes-soma.service) |
+
+Use the local `.env` for paths and the SSH target. Keep SSH private keys in the SSH client's existing storage and server credentials in the private service environment file. Git ignores `.env`, local `.env.*` files, and `*.env` files such as `gateway.env`; the example files remain tracked. Keep the server environment file outside the source checkouts even with these ignore rules.
+
 ## Explicit SSH target
 
-Configure authentication in your local SSH client and set `SOMA_VPS_SSH_HOST` to the host or alias you intend to access. The wrapper has no default target and exits with an error when this variable is unset or empty. Replace `YOUR_SSH_ALIAS` in these examples with your own privately configured target:
+On the machine you connect from, configure an alias in your private `~/.ssh/config`. This is a generic example; replace the alias, host, account, and key path with your own values. Point `IdentityFile` to an existing key outside both repositories:
+
+```sshconfig
+Host YOUR_SSH_ALIAS
+    HostName vps.example.com
+    User ACCOUNT
+    IdentityFile ~/.ssh/YOUR_EXISTING_PRIVATE_KEY
+    IdentitiesOnly yes
+```
+
+Set `SOMA_VPS_SSH_HOST` to the host or alias you intend to access. The wrapper has no default target and exits with an error when this variable is unset or empty. Replace `YOUR_SSH_ALIAS` in these examples with your own privately configured target:
 
 ```sh
 SOMA_VPS_SSH_HOST=YOUR_SSH_ALIAS npm run vps:ssh
 ```
+
+For repeated use, uncomment and set `SOMA_VPS_SSH_HOST` in your local `.env`; [`.env.example`](../.env.example) includes the optional setting. [Load the file explicitly in the shell](getting-started.md#configure-paths) before running `npm run vps:ssh`. The SSH wrapper does not load `.env` automatically.
 
 The wrapper accepts remote-command arguments:
 
@@ -38,7 +64,7 @@ Set `HEALTH_OS_REPO`, `HEALTH_OS_WORKSPACE`, and `SOMA_RUNTIME_HOME` explicitly 
 
 Put provider/model selection and Telegram settings in the isolated runtime's `hermes-home/config.yaml`; see the [managed gateway configuration](hermes.md#managed-telegram-gateway). Keep credentials in the private service environment file. The interactive `runtime:configure` flow can save keys in Hermes `.env`, which the managed gateway refuses. Create a fresh runtime instead of copying another application's configuration, credentials, sessions, or existing Hermes home.
 
-Adapt [the systemd user-service template](../deploy/systemd/hermes-soma.service) with the account's absolute source, runtime, environment-file, and Node paths. Choose a service name that is distinct from other services on the target host. Document any actual deployment inventory privately.
+Adapt [the systemd user-service template](../deploy/systemd/hermes-soma.service) with the account's absolute source, environment-file, and Node paths. The unit reads `SOMA_RUNTIME` and `SOMA_RUNTIME_HOME` from its private environment file, so set the runtime path once in that file. Choose a service name that is distinct from other services on the target host. Document any actual deployment inventory privately.
 
 ## Installation checklist
 
