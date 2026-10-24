@@ -1,0 +1,29 @@
+# Copy this template to the user's systemd unit directory after replacing ACCOUNT with the target
+# account. Set ExecStart's absolute Node path if Node is not installed at /usr/bin/node.
+# If Node is installed outside /usr/local/bin, /usr/bin, or /bin, add its bin
+# directory to this PATH as well so runtime helpers can invoke `node`.
+# Keep this name distinct from Hermes/Buddy units.
+[Unit]
+Description=SOMA Telegram gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ACCOUNT/soma/source/soma-ai
+EnvironmentFile=/home/ACCOUNT/soma/config/gateway.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /home/ACCOUNT/soma/source/soma-ai/src/runtime/cli.js gateway --runtime hermes --runtime-home /home/ACCOUNT/soma/runtime
+Restart=on-failure
+RestartSec=10s
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=90s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

@@ -23,11 +23,13 @@ python_min="$(node --input-type=module -e 'import fs from "node:fs"; console.log
 python_max="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).bootstrap.maximum_python_exclusive)' "$manifest")"
 runtime_dir_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.runtime_dir)' "$manifest")"
 hermes_home_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.hermes_home)' "$manifest")"
+managed_dir_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.managed_dir)' "$manifest")"
 user_home_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.user_home)' "$manifest")"
 python_file_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.python_file)' "$manifest")"
 uv_cache_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.uv_cache)' "$manifest")"
 python_cache_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.python_cache)' "$manifest")"
 working_directory_name="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).runtime.working_directory)' "$manifest")"
+gateway_extra="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).gateway_dependencies.extra)' "$manifest")"
 soul_template="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).assets.soul_template)' "$manifest")"
 skill_source="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).assets.skill_source)' "$manifest")"
 
@@ -66,16 +68,17 @@ uv_cache="$runtime_home/$uv_cache_name"
 python_cache="$runtime_home/$python_cache_name"
 working_directory="$runtime_home/$working_directory_name"
 expected_managed_home="$runtime_home/$user_home_name"
+expected_managed_config="$runtime_home/$managed_dir_name"
 [ "${HOME:-}" = "$expected_managed_home" ] || fail 'The runtime manager must provide an isolated HOME under SOMA_RUNTIME_HOME.'
 [ "${USERPROFILE:-}" = "$expected_managed_home" ] || fail 'The runtime manager must provide an isolated USERPROFILE under SOMA_RUNTIME_HOME.'
-for managed_dir in "$managed_user_home" "$hermes_home" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory" "$runtime_home/python" "$runtime_home/python-bin"; do
+for managed_dir in "$managed_user_home" "$hermes_home" "$expected_managed_config" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory" "$runtime_home/python" "$runtime_home/python-bin"; do
   [ ! -L "$managed_dir" ] || fail 'Managed runtime paths must not be symlinks.'
 done
 for managed_skill_dir in "$hermes_home/skills" "$hermes_home/skills/soma-health"; do
   [ ! -L "$managed_skill_dir" ] || fail 'Refusing to follow a symlink while installing the local Soma skill.'
 done
-mkdir -p "$managed_user_home" "$hermes_home" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory"
-for managed_dir in "$managed_user_home" "$hermes_home" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory"; do
+mkdir -p "$managed_user_home" "$hermes_home" "$expected_managed_config" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory"
+for managed_dir in "$managed_user_home" "$hermes_home" "$expected_managed_config" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory"; do
   managed_dir_physical="$(cd "$managed_dir" && pwd -P)"
   case "$managed_dir_physical/" in
     "$runtime_home/"*) ;;
@@ -90,6 +93,7 @@ export XDG_CONFIG_HOME="$managed_user_home/.config"
 export XDG_DATA_HOME="$managed_user_home/.local/share"
 export XDG_CACHE_HOME="$managed_user_home/.cache"
 export HERMES_HOME="$hermes_home"
+export HERMES_MANAGED_DIR="$expected_managed_config"
 export HERMES_RUNTIME_DIR="$hermes_runtime_dir"
 export UV_CACHE_DIR="$uv_cache"
 export UV_PYTHON_CACHE_DIR="$python_cache"
@@ -138,6 +142,9 @@ printf 'Installing Hermes pinned tools without optional browser or CUA packages�
 
 printf 'Installing the minimal CLI dependencies through Hermes PM…\n' >&2
 (cd "$source_dir" && "$hermes_python" -m pm.cli install --extra pty) >&2
+
+printf 'Installing the pinned native Telegram gateway dependency through Hermes PM…\n' >&2
+(cd "$source_dir" && "$hermes_python" -m pm.cli install --extra "$gateway_extra") >&2
 
 python_file="$runtime_home/$python_file_name"
 python_file_tmp=""

@@ -27,6 +27,10 @@ npm start -- prepare-training
 
 See the [Hermes setup and usage guide](docs/hermes.md) for isolated runtime setup, provider configuration, and Health OS paths.
 
+## VPS preparation
+
+Use `npm run vps:ssh` to connect through the local `hermes-vps` SSH alias, shared with AI Buddy. SOMA has a bounded Telegram gateway command and a separate `hermes-soma.service` user-unit template with a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [VPS checklist](docs/vps.md) for isolated paths, private configuration, service startup, testing, and the later data migration. Source preparation does not deploy or migrate data.
+
 ## Disclaimer
 
 Soma AI and its outputs have not been clinically validated. The software is for personal planning, not medical advice, diagnosis, or treatment. AI-generated output may be incomplete or wrong; independently verify it before acting, and consult a qualified clinician for medical decisions. Use it at your own risk. The software is provided “as is”; to the fullest extent permitted by applicable law, the authors disclaim warranties and liability as described in the [MIT License](LICENSE).

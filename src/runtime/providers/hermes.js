@@ -11,14 +11,18 @@ const MAX_CHECK_OUTPUT_BYTES = 64 * 1024;
 const MAX_SETUP_OUTPUT_BYTES = 4 * 1024 * 1024;
 const SETUP_TIMEOUT_MS = 20 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 2 * 60 * 1000;
+const GATEWAY_CONFIG_CHECK_TIMEOUT_MS = 20 * 1000;
+const GATEWAY_CONFIG_CHECK_MAX_BYTES = 16 * 1024;
 const CHAT_CREDENTIAL_ENV = [
   'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY',
   'XAI_API_KEY', 'DEEPSEEK_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY', 'TOGETHER_API_KEY'
 ];
+const GATEWAY_CREDENTIAL_ENV = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALLOWED_USERS'];
 const HERMES_COMMANDS = {
   help: ['--help'],
   chat: ['chat', '--cli'],
-  list_local_skills: ['skills', 'list', '--source', 'local']
+  list_local_skills: ['skills', 'list', '--source', 'local'],
+  gateway: ['gateway', 'run', '--external-supervisor']
 };
 const MODEL_PROVIDER_EXTRAS = new Map([
   ['anthropic', 'anthropic'],
@@ -52,15 +56,20 @@ function readManifest(repoRoot) {
       !manifest.runtime || typeof manifest.runtime !== 'object' || Array.isArray(manifest.runtime) ||
       !manifest.commands || JSON.stringify(manifest.commands.help) !== JSON.stringify(HERMES_COMMANDS.help) ||
       JSON.stringify(manifest.commands.chat) !== JSON.stringify(HERMES_COMMANDS.chat) ||
-      JSON.stringify(manifest.commands.list_local_skills) !== JSON.stringify(HERMES_COMMANDS.list_local_skills)) {
+      JSON.stringify(manifest.commands.list_local_skills) !== JSON.stringify(HERMES_COMMANDS.list_local_skills) ||
+      JSON.stringify(manifest.commands.gateway) !== JSON.stringify(HERMES_COMMANDS.gateway) ||
+      !manifest.gateway_dependencies || manifest.gateway_dependencies.extra !== 'telegram' ||
+      manifest.gateway_dependencies.telegram_package !== 'python-telegram-bot' ||
+      manifest.gateway_dependencies.telegram_version !== '22.8') {
     throw fail('The pinned Hermes runtime manifest does not match the supported source revision.', 'SOMA_HERMES_MANIFEST_INVALID');
   }
   const runtime = manifest.runtime;
-  for (const key of ['hermes_home', 'runtime_dir', 'user_home', 'working_directory', 'python_file']) {
+  for (const key of ['hermes_home', 'runtime_dir', 'user_home', 'working_directory', 'python_file', 'managed_dir']) {
     safeRelativePath(runtime[key], `runtime.${key}`);
   }
   if (runtime.hermes_home !== 'hermes-home' || runtime.runtime_dir !== 'hermes-tools' ||
       runtime.user_home !== 'user-home' || runtime.working_directory !== 'working-directory' ||
+      runtime.managed_dir !== 'hermes-managed' ||
       runtime.python_file !== 'hermes-python.txt') {
     throw fail('The pinned Hermes runtime manifest has an invalid runtime directory.', 'SOMA_HERMES_MANIFEST_INVALID');
   }
@@ -152,7 +161,8 @@ function parseCheck(stdout, manifest) {
       typeof result.ok !== 'boolean' || result.provider !== 'hermes' ||
       typeof result.source_commit !== 'string' || typeof result.source_clean !== 'boolean' ||
       typeof result.python_version !== 'string' || typeof result.cli_help !== 'boolean' ||
-      typeof result.skill_loaded !== 'boolean' ||
+      typeof result.skill_loaded !== 'boolean' || typeof result.telegram_sdk !== 'boolean' ||
+      typeof result.gateway_authz !== 'boolean' ||
       (result.error !== null && typeof result.error !== 'string')) {
     throw fail('The Hermes compatibility check returned an invalid response.', 'SOMA_HERMES_CHECK_INVALID');
   }
@@ -173,7 +183,8 @@ function parseCheck(stdout, manifest) {
     if (!result.source_clean || (result.error !== null && result.error !== '')) {
       throw fail('The Hermes compatibility check returned inconsistent readiness data.', 'SOMA_HERMES_CHECK_INVALID');
     }
-    if (!/^3\.14\.\d+$/.test(result.python_version) || !result.cli_help || !result.skill_loaded) {
+    if (!/^3\.14\.\d+$/.test(result.python_version) || !result.cli_help || !result.skill_loaded ||
+        !result.telegram_sdk || !result.gateway_authz) {
       throw fail('The Hermes compatibility check returned unsupported success data.', 'SOMA_HERMES_CHECK_INVALID');
     }
   } else {
@@ -191,7 +202,9 @@ function parseCheck(stdout, manifest) {
     version: manifest.upstream?.tag || 'pinned',
     source_revision: manifest.source_revision,
     python_version: result.python_version,
-    skill_installed: result.skill_loaded
+    skill_installed: result.skill_loaded,
+    telegram_sdk: result.telegram_sdk,
+    gateway_authz: result.gateway_authz
   };
 }
 
@@ -239,6 +252,157 @@ function readPythonPath(context, pythonFile, runtimeDirectory) {
   return executable;
 }
 
+const GATEWAY_CONFIG_CHECK = String.raw`import json, os, sys
+from pathlib import Path
+
+def refuse(code):
+    print(json.dumps({"ok": False, "code": code}))
+    raise SystemExit(0)
+
+try:
+    from gateway.config import Platform, load_gateway_config
+    from gateway.config_loader import read_yaml_layers
+    home = Path(os.environ["HERMES_HOME"])
+    raw = read_yaml_layers(home)
+    if raw.get("secrets"):
+        refuse("external_secret_sources")
+    model = raw.get("model")
+    if not isinstance(model, dict) or not isinstance(model.get("provider"), str) or not model["provider"].strip() or \
+            model["provider"].strip().lower() == "auto" or not isinstance(model.get("default"), str) or \
+            not model["default"].strip() or set(model) - {"provider", "default"}:
+        refuse("model_provider_config_invalid")
+    config = load_gateway_config()
+except Exception:
+    refuse("configuration_unreadable")
+
+def truthy(name):
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+if truthy("GATEWAY_ALLOW_ALL_USERS") or truthy("TELEGRAM_ALLOW_ALL_USERS"):
+    refuse("allow_all_enabled")
+if config.profile_routes:
+    refuse("profile_routes_enabled")
+for platform, item in config.platforms.items():
+    if platform == Platform.TELEGRAM:
+        continue
+    if item.enabled or item.token or item.api_key or item.home_channel or item.extra:
+        refuse("non_telegram_platform_configured")
+telegram = config.platforms.get(Platform.TELEGRAM)
+if telegram is None or not telegram.enabled or not telegram.token:
+    refuse("telegram_not_enabled")
+extra = telegram.extra if isinstance(telegram.extra, dict) else {}
+if set(extra) - {"unauthorized_dm_behavior"}:
+    refuse("telegram_extra_config_not_allowed")
+if telegram.api_key or telegram.home_channel or telegram.channel_overrides:
+    refuse("telegram_nonminimal_config")
+if config.get_unauthorized_dm_behavior(Platform.TELEGRAM) != "ignore" or \
+        extra.get("unauthorized_dm_behavior") not in (None, "ignore"):
+    refuse("unauthorized_dm_behavior_not_ignore")
+print(json.dumps({"ok": True}))`;
+
+function validateTelegramCredentials(env) {
+  const token = typeof env.TELEGRAM_BOT_TOKEN === 'string' ? env.TELEGRAM_BOT_TOKEN.trim() : '';
+  if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) {
+    throw fail('Gateway requires a non-placeholder Telegram bot token in the private service environment.',
+      'SOMA_HERMES_GATEWAY_TELEGRAM_TOKEN_REQUIRED');
+  }
+  const allowlist = typeof env.TELEGRAM_ALLOWED_USERS === 'string' ? env.TELEGRAM_ALLOWED_USERS.trim() : '';
+  const users = allowlist.split(',').map((value) => value.trim());
+  if (!allowlist || users.some((user) => !/^\d+$/.test(user) || BigInt(user) <= 0n) ||
+      new Set(users).size !== users.length) {
+    throw fail('Gateway requires a comma-separated allowlist of positive numeric Telegram user IDs.',
+      'SOMA_HERMES_GATEWAY_TELEGRAM_ALLOWLIST_REQUIRED');
+  }
+  if (['GATEWAY_ALLOW_ALL_USERS', 'TELEGRAM_ALLOW_ALL_USERS'].some((key) => {
+    const value = typeof env[key] === 'string' ? env[key].trim().toLowerCase() : '';
+    return ['1', 'true', 'yes', 'on'].includes(value);
+  })) {
+    throw fail('Gateway refuses all-users authorization overrides.', 'SOMA_HERMES_GATEWAY_ALLOW_ALL_BLOCKED');
+  }
+}
+
+function assertPrivateGatewayFiles(context, runtime) {
+  const runtimeHome = fs.realpathSync(context.runtimeHome);
+  const home = path.resolve(runtimeHome, runtime.hermes_home);
+  const managed = path.resolve(runtimeHome, runtime.managed_dir);
+  for (const directory of [home, managed]) {
+    let stat;
+    try { stat = fs.lstatSync(directory); } catch {
+      throw fail('The isolated Hermes gateway configuration directory is missing. Run runtime setup.',
+        'SOMA_HERMES_GATEWAY_HOME_INVALID');
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink() ||
+        !isPathInside(fs.realpathSync(directory), runtimeHome)) {
+      throw fail('The isolated Hermes gateway configuration directory is invalid.',
+        'SOMA_HERMES_GATEWAY_HOME_INVALID');
+    }
+  }
+  for (const directory of [home, managed]) {
+    for (const name of ['.env', '.op.env']) {
+      try { fs.lstatSync(path.join(directory, name)); } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw fail('Could not safely inspect isolated Hermes secret files.', 'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED');
+      }
+      throw fail('Gateway refuses unmanaged Hermes environment or secret-source files; use the private systemd environment file.',
+        'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED');
+    }
+  }
+  const profiles = path.join(home, 'profiles');
+  try {
+    const stat = fs.lstatSync(profiles);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.readdirSync(profiles).length > 0) {
+      throw fail('Gateway refuses Hermes named profiles in its isolated home.', 'SOMA_HERMES_GATEWAY_PROFILES_BLOCKED');
+    }
+  } catch (error) {
+    if (error instanceof RuntimeError) throw error;
+    if (error?.code !== 'ENOENT') {
+      throw fail('Could not safely inspect isolated Hermes profiles.', 'SOMA_HERMES_GATEWAY_PROFILES_BLOCKED');
+    }
+  }
+  if (context.env.HERMES_HOME !== home || context.env.HERMES_MANAGED_DIR !== managed ||
+      context.env.HOME !== path.resolve(runtimeHome, runtime.user_home)) {
+    throw fail('Gateway environment paths must remain inside the managed SOMA runtime.',
+      'SOMA_HERMES_GATEWAY_HOME_INVALID');
+  }
+}
+
+function isPathInside(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function validateGatewayLaunch({ context, root, pythonPath, run }) {
+  validateTelegramCredentials(context.env || {});
+  assertPrivateGatewayFiles(context, root.runtime);
+  let result;
+  try {
+    result = run(pythonPath, ['-c', GATEWAY_CONFIG_CHECK], {
+      cwd: root.sourceRoot,
+      env: context.env,
+      shell: false,
+      encoding: 'utf8',
+      timeout: GATEWAY_CONFIG_CHECK_TIMEOUT_MS,
+      maxBuffer: GATEWAY_CONFIG_CHECK_MAX_BYTES,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch (error) {
+    throw fail('Could not verify the isolated Telegram gateway configuration.', 'SOMA_HERMES_GATEWAY_CONFIG_INVALID');
+  }
+  if (result?.error || result?.signal || result?.status !== 0 || typeof result?.stdout !== 'string' ||
+      Buffer.byteLength(result.stdout, 'utf8') > GATEWAY_CONFIG_CHECK_MAX_BYTES) {
+    throw fail('Could not verify the isolated Telegram gateway configuration.', 'SOMA_HERMES_GATEWAY_CONFIG_INVALID');
+  }
+  let policy;
+  try { policy = JSON.parse(result.stdout.trim()); } catch {
+    throw fail('The isolated Telegram gateway configuration check returned invalid data.',
+      'SOMA_HERMES_GATEWAY_CONFIG_INVALID');
+  }
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy) || policy.ok !== true) {
+    throw fail('The isolated Hermes configuration enables another channel or weakens Telegram authorization.',
+      'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED');
+  }
+}
+
 export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stderr = process.stderr } = {}) {
   if (typeof repoRoot !== 'string' || !path.isAbsolute(repoRoot) || typeof spawnSyncImpl !== 'function') {
     throw fail('The Hermes runtime provider configuration is invalid.', 'SOMA_HERMES_PROVIDER_INVALID');
@@ -254,12 +418,14 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
     name: 'hermes',
     sourceRevision: HERMES_SOURCE_REVISION,
     chatCredentialEnv: CHAT_CREDENTIAL_ENV,
+    gatewayCredentialEnv: GATEWAY_CREDENTIAL_ENV,
     forbiddenHomes: () => [path.join(os.homedir(), '.hermes')],
     environment(context) {
       const dirs = paths(context.runtimeHome);
       return {
         HERMES_HOME: dirs.hermesHome,
         HERMES_RUNTIME_DIR: dirs.runtimeDir,
+        HERMES_MANAGED_DIR: path.resolve(context.runtimeHome, root.runtime.managed_dir),
         HERMES_DISABLE_LAZY_INSTALLS: '1'
       };
     },
@@ -284,7 +450,8 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
         chat: [],
         help: [],
         configure: [],
-        skills: []
+        skills: [],
+        gateway: []
       };
       if (action === 'provider-dependencies') {
         if (args.length !== 1 || !MODEL_PROVIDER_EXTRAS.has(args[0])) {
@@ -301,10 +468,12 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
     async launch({ action, args, context }) {
       sourceFiles(root);
       const pythonPath = readPythonPath(context, root.runtime.python_file, root.runtime.runtime_dir);
+      if (action === 'gateway') validateGatewayLaunch({ context, root, pythonPath, run: spawnSyncImpl });
       const operationArgs = action === 'chat' ? manifest.commands.chat
         : action === 'help' ? manifest.commands.help
           : action === 'configure' ? ['model']
             : action === 'skills' ? manifest.commands.list_local_skills
+              : action === 'gateway' ? manifest.commands.gateway
               : ['pm', 'install', '--extra', MODEL_PROVIDER_EXTRAS.get(args[0])];
       return {
         executable: pythonPath,

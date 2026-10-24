@@ -17,6 +17,13 @@
 - The first SOMA flow is read-only after explicit workspace initialization. Do not add writes to the training-preparation flow.
 - Keep the core Node CLI free of npm runtime dependencies. The pinned Hermes conversational runtime is an explicit product dependency, isolated from the Health OS workspace.
 
+## VPS operations
+
+- Read `docs/vps.md` before deployment or migration work. Use `npm run vps:ssh` or `sh scripts/vps-ssh.sh` for SSH; both use the local `hermes-vps` alias by default, shared with AI Buddy. `ASSISTANT_VPS_SSH_HOST` overrides the alias.
+- SSH resolves the host, user and existing key from the operator's local SSH configuration. Never copy private keys or authentication material into either repository.
+- The initial deployment uses the existing SSH account with a separate `$HOME/soma` tree and `hermes-soma.service`. These are planned conventions; inspect live state before creating or changing them.
+- Keep SOMA runtime state and the Health OS workspace separate from Buddy. Test the new Telegram bot with neutral or synthetic data before a separately scoped migration; do not inspect or import Buddy's private records during deployment preparation.
+
 ## Temporary files
 
 - After each task, remove temporary scripts, probes, scratch files, and validation copies created only for that task, including on remote hosts. Prefer stdin or inline commands when a saved helper is unnecessary.

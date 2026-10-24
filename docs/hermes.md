@@ -47,6 +47,28 @@ This command accepts only those three names, installs through Hermes' pinned pac
 
 Use the provider selector again to change providers. That changes the LLM connection inside Hermes; changing `SOMA_RUNTIME` selects a different SOMA conversation-runtime module. The current module is Hermes. For available providers and their setup requirements, see the pinned upstream [provider guide](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/website/docs/integrations/providers.md) and [configuration guide](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/website/docs/user-guide/configuration.md).
 
+## Managed Telegram gateway
+
+`npm run gateway` starts the pinned Telegram adapter in the foreground for an external service manager. The command requires explicit `HEALTH_OS_REPO` and `HEALTH_OS_WORKSPACE` paths, a private runtime home, `TELEGRAM_BOT_TOKEN`, and a comma-separated numeric `TELEGRAM_ALLOWED_USERS` list. It passes only credential variables on the runtime adapter's allowlist and these two Telegram values; the initial OpenAI example uses `OPENAI_API_KEY`. It refuses other enabled channels, Hermes named profiles, `.env`/`.op.env` secret files, adapter-level Telegram allowlists, and a configuration that does not silently ignore unauthorized DMs. The initial rollout uses polling; do not add webhook or other channel settings.
+
+The gateway's provider and model selection live in `hermes-home/config.yaml`. For the initial OpenAI API deployment, use the canonical `openai-api` provider (the short alias `openai` can resolve ambiguously) and keep the key in the private service environment:
+
+```yaml
+model:
+  provider: openai-api
+  default: gpt-6.1-sol
+agent:
+  reasoning_effort: medium
+platforms:
+  telegram:
+    enabled: true
+unauthorized_dm_behavior: ignore
+```
+
+`runtime:configure` is the interactive local-chat setup and can save a provider key in `hermes-home/.env`; the managed gateway deliberately refuses that file. For a service, use an owner-only private environment file instead. Start from [the non-secret environment example](../deploy/systemd/gateway.env.example), replace every example path with an absolute path and each placeholder with private values, then set mode `0600`. Do not put real tokens or API keys in the example, repository, chat, command arguments, or logs. Add the new Telegram bot's positive numeric user IDs to the allowlist. A fresh runtime has no pairing grants; unauthorized DMs remain ignored.
+
+On a Linux VPS, adapt [the user service template](../deploy/systemd/hermes-soma.service) for the account's absolute source, runtime, config, and Node paths. Keep the unit named `hermes-soma.service`, separate from Buddy. The Node CLI forwards SIGTERM/SIGINT to Hermes and waits for its clean exit; systemd restarts only on failure. The service template does not install or start itself.
+
 ## Start SOMA
 
 Prepare Health OS separately by following [the checkout, path configuration, and workspace initialization guide](getting-started.md). Health OS remains an independent data engine; Hermes setup and provider configuration do not initialize or read its workspace. After initialization, start the conversational runtime:
