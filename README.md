@@ -8,6 +8,8 @@ The first implemented workflow is manual training preparation from workout histo
 
 The result explains the session strategy, rationale, sources, and missing inputs. Original records stay in the local workspace; Hermes receives a bounded summary.
 
+A separate allowlisted `health-action` interface can read the selected profile and bounded workout history, or record an explicitly requested workout/working-weight change through native Health OS commands. It requires JSON output so the human formatter omits private excerpts. Writes are operator-gated: `SOMA_HEALTH_ACTION_MODE` defaults to `read-only`; `--confirmed` alone cannot enable them. Latest-history lookup requires an explicit `--through YYYY-MM-DD` date from the configured local calendar, avoiding an implicit UTC cutoff. See [architecture](docs/architecture.md) and [privacy](docs/privacy.md) for bounds and limitations.
+
 ## Run
 
 After configuring Health OS paths and initializing the workspace, install and check the isolated Hermes runtime. Configure a model provider when needed, then start chat:

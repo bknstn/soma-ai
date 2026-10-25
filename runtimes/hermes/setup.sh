@@ -32,6 +32,7 @@ working_directory_name="$(node --input-type=module -e 'import fs from "node:fs";
 gateway_extra="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).gateway_dependencies.extra)' "$manifest")"
 soul_template="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).assets.soul_template)' "$manifest")"
 skill_source="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).assets.skill_source)' "$manifest")"
+action_skill_source="$(node --input-type=module -e 'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).assets.action_skill_source)' "$manifest")"
 
 source_dir="$repo_root/$source_path"
 [ -d "$source_dir/.git" ] || [ -f "$source_dir/.git" ] || fail 'Hermes submodule is not initialized.'
@@ -74,7 +75,7 @@ expected_managed_config="$runtime_home/$managed_dir_name"
 for managed_dir in "$managed_user_home" "$hermes_home" "$expected_managed_config" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory" "$runtime_home/python" "$runtime_home/python-bin"; do
   [ ! -L "$managed_dir" ] || fail 'Managed runtime paths must not be symlinks.'
 done
-for managed_skill_dir in "$hermes_home/skills" "$hermes_home/skills/soma-health"; do
+for managed_skill_dir in "$hermes_home/skills" "$hermes_home/skills/soma-health" "$hermes_home/skills/soma-health-actions"; do
   [ ! -L "$managed_skill_dir" ] || fail 'Refusing to follow a symlink while installing the local Soma skill.'
 done
 mkdir -p "$managed_user_home" "$hermes_home" "$expected_managed_config" "$hermes_runtime_dir" "$uv_cache" "$python_cache" "$working_directory"
@@ -172,13 +173,20 @@ seed_file_if_missing() {
 }
 
 seed_file_if_missing "$repo_root/$soul_template" "$hermes_home/SOUL.md"
-skill_name="$(basename "$skill_source")"
-skill_target="$hermes_home/skills/$skill_name"
 mkdir -p "$hermes_home/skills"
-mkdir -p "$skill_target"
-for skill_file in "$repo_root/$skill_source"/*; do
-  [ -f "$skill_file" ] || continue
-  seed_file_if_missing "$skill_file" "$skill_target/$(basename "$skill_file")"
+for skill_source in "$skill_source" "$action_skill_source"; do
+  case "$skill_source" in skills/*) ;; *) fail 'A managed skill source path is invalid.' ;; esac
+  case "$skill_source" in *..*) fail 'A managed skill source path is invalid.' ;; esac
+  [ -d "$repo_root/$skill_source" ] && [ ! -L "$repo_root/$skill_source" ] || fail 'A managed skill source directory is invalid.'
+  skill_name="$(basename "$skill_source")"
+  skill_target="$hermes_home/skills/$skill_name"
+  mkdir -p "$skill_target"
+  [ ! -L "$skill_target" ] || fail 'A managed skill directory must not be a symlink.'
+  for skill_file in "$repo_root/$skill_source"/*; do
+    [ -f "$skill_file" ] || continue
+    [ ! -L "$skill_file" ] || fail 'A managed skill source file must not be a symlink.'
+    seed_file_if_missing "$skill_file" "$skill_target/$(basename "$skill_file")"
+  done
 done
 
 printf 'Hermes runtime setup completed under SOMA_RUNTIME_HOME.\n' >&2

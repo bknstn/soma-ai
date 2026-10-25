@@ -12,8 +12,16 @@ import {
   renderPreparation
 } from './presenter.js';
 
-const COMMANDS = new Set(['doctor', 'init', 'prepare-training']);
-const VALUE_FLAGS = new Set(['--workspace', '--health-os-repo', '--as-of']);
+const COMMANDS = new Set(['doctor', 'init', 'prepare-training', 'health-action']);
+const BASE_VALUE_FLAGS = new Set(['--workspace', '--health-os-repo', '--as-of']);
+const HEALTH_ACTIONS = new Set(['profile', 'workout-history', 'latest-workout', 'log-workout', 'set-working-weight']);
+const HEALTH_ACTION_VALUE_FLAGS = Object.freeze({
+  profile: new Set(),
+  'workout-history': new Set(['--since', '--through']),
+  'latest-workout': new Set(['--through']),
+  'log-workout': new Set(['--date', '--idempotency-key']),
+  'set-working-weight': new Set(['--exercise', '--weight', '--increment', '--idempotency-key'])
+});
 const SAFE_ERROR_MESSAGES = Object.freeze({
   HEALTH_OS_WORKSPACE_REQUIRED: 'Set HEALTH_OS_WORKSPACE or pass --workspace PATH.',
   HEALTH_OS_REPOSITORY_INVALID: 'Set --health-os-repo to the root of the Health OS checkout.',
@@ -43,7 +51,12 @@ const SAFE_ERROR_MESSAGES = Object.freeze({
   HEALTH_OS_INVALID_DOMAIN: 'Health OS returned an unsupported training preparation result.',
   HEALTH_OS_INVALID_WORKSPACE: 'Health OS returned an unsupported workspace status.',
   HEALTH_OS_SPAWN_FAILED: 'SOMA could not start the Health OS CLI.',
-  HEALTH_OS_COMMAND_FAILED: 'Health OS reported that the command failed.'
+  HEALTH_OS_COMMAND_FAILED: 'Health OS reported that the command failed.',
+  HEALTH_OS_ACTION_INPUT_INVALID: 'The requested health action has invalid or incomplete fields.',
+  HEALTH_OS_ACTION_WRITES_DISABLED: 'Health writes are disabled by the operator-controlled SOMA_HEALTH_ACTION_MODE.',
+  HEALTH_OS_INVALID_PROFILE: 'Health OS returned invalid selected-profile metadata.',
+  HEALTH_OS_INVALID_HISTORY: 'Health OS returned invalid or incomplete workout history.',
+  HEALTH_OS_WRITE_OUTCOME_UNKNOWN: 'The write outcome is unknown. Inspect Health OS before retrying, and reuse the same idempotency key after review.'
 });
 const INIT_MAY_HAVE_COMPLETED = new Set([
   'HEALTH_OS_TIMEOUT', 'HEALTH_OS_OUTPUT_LIMIT', 'HEALTH_OS_STDERR_LIMIT',
@@ -57,6 +70,14 @@ Commands:
   doctor             Check Health OS compatibility and workspace status
   init               Initialize a new empty Health OS workspace
   prepare-training   Prepare the scheduled training plan for an exact time
+  health-action      Read selected profile/history or explicitly log workout/weight
+
+Health actions:
+  profile
+  workout-history --since YYYY-MM-DD --through YYYY-MM-DD
+  latest-workout --through YYYY-MM-DD
+  log-workout --confirmed --date YYYY-MM-DD --idempotency-key KEY --input-json
+  set-working-weight --confirmed --exercise KEY --weight KG --idempotency-key KEY
 
 Options:
   --health-os-repo PATH  Health OS checkout (or HEALTH_OS_REPO)
@@ -78,24 +99,41 @@ class CliError extends Error {
 function parseArgs(argv) {
   const command = argv[0];
   if (argv.length === 0 || command === '--help' || command === '-h') return { help: true, command: null };
-  if (!COMMANDS.has(command)) throw new CliError('Choose doctor, init, or prepare-training.');
+  if (!COMMANDS.has(command)) throw new CliError('Choose doctor, init, prepare-training, or health-action.');
+  let action;
+  let optionStart = 1;
+  if (command === 'health-action') {
+    action = argv[1];
+    optionStart = 2;
+    if (!HEALTH_ACTIONS.has(action)) throw new CliError('Choose a supported health action.');
+  }
 
-  const options = { command, json: false };
-  for (let index = 1; index < argv.length; index += 1) {
+  const options = { command, action, json: false };
+  const allowedValueFlags = new Set(BASE_VALUE_FLAGS);
+  if (command === 'health-action') {
+    for (const flag of HEALTH_ACTION_VALUE_FLAGS[action]) allowedValueFlags.add(flag);
+  }
+  for (let index = optionStart; index < argv.length; index += 1) {
     const flag = argv[index];
-    if (flag === '--help' || flag === '-h') return { help: true, command };
+    if (flag === '--help' || flag === '-h') return { help: true, command, action };
     if (flag === '--json') {
       if (options.json) throw new CliError('Use --json only once.');
       options.json = true;
       continue;
     }
-    if (!VALUE_FLAGS.has(flag)) throw new CliError('An unsupported command option was supplied.');
+    if (command === 'health-action' && ['--input-json', '--confirmed'].includes(flag)) {
+      const key = flag.slice(2);
+      if (options[key] === true) throw new CliError('A health action flag may be supplied only once.');
+      options[key] = true;
+      continue;
+    }
+    if (!allowedValueFlags.has(flag)) throw new CliError('An unsupported command option was supplied.');
     const value = argv[index + 1];
     if (typeof value !== 'string' || value.length === 0 || value.startsWith('--')) {
-      throw new CliError(`${flag} requires a value.`);
+      throw new CliError('A required command option is missing its value.');
     }
     const key = flag.slice(2);
-    if (options[key] !== undefined) throw new CliError(`${flag} may be supplied only once.`);
+    if (options[key] !== undefined) throw new CliError('A command option may be supplied only once.');
     options[key] = value;
     index += 1;
   }
@@ -103,7 +141,60 @@ function parseArgs(argv) {
   if (options['as-of'] !== undefined && command !== 'prepare-training') {
     throw new CliError('--as-of is available only with prepare-training.');
   }
+  if (command === 'health-action' && options.json !== true) {
+    throw new CliError('Health actions require --json so private content is not rendered by the human formatter.');
+  }
+  if (options['input-json'] && action !== 'log-workout') {
+    throw new CliError('--input-json is available only with the log-workout health action.');
+  }
+  if (options.confirmed && !['log-workout', 'set-working-weight'].includes(action)) {
+    throw new CliError('--confirmed is available only for explicit health writes.');
+  }
+  if (command !== 'health-action' && (options['input-json'] || options.confirmed)) {
+    throw new CliError('Health action flags are unavailable for this command.');
+  }
   return { help: false, ...options };
+}
+
+async function readJsonInput(stream, maxBytes = 64 * 1024) {
+  const chunks = [];
+  let byteLength = 0;
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    byteLength += buffer.byteLength;
+    if (byteLength > maxBytes) {
+      throw new CliError('Workout JSON input exceeds the supported size limit.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+    }
+    chunks.push(buffer);
+  }
+  try {
+    const text = Buffer.concat(chunks).toString('utf8');
+    const value = JSON.parse(text);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('shape');
+    return value;
+  } catch {
+    throw new CliError('Workout JSON input must be one bare JSON object.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+  }
+}
+
+function renderHealthAction(data) {
+  switch (data.action) {
+    case 'profile':
+      return 'Selected profile ' + data.profile_path + ': ' + (data.complete ? 'complete' : 'partial') +
+        ' (' + data.returned_chars + '/' + data.total_chars + ' characters). Private profile content omitted.\n';
+    case 'workout-history':
+      return 'Workout history: ' + data.items.length + ' session(s), ' + data.completeness +
+        '. Private workout details omitted.\n';
+    case 'latest-workout':
+      return 'Latest workout lookup: ' + data.status + (data.latest_date ? ' for ' + data.latest_date : '') +
+        '. Private workout details omitted.\n';
+    case 'log-workout':
+      return 'Workout write recorded; private workout details omitted.\n';
+    case 'set-working-weight':
+      return 'Working-weight update recorded; private health details omitted.\n';
+    default:
+      return 'Health action completed.\n';
+  }
 }
 
 function isValidRfc3339Instant(value) {
@@ -212,7 +303,53 @@ export async function runCli(argv, dependencies = {}) {
       writeResponse(command, json, data, renderPreparation(data), stdout);
       return 0;
     }
-    throw new CliError('Choose doctor, init, or prepare-training.');
+    if (command === 'health-action') {
+      const action = parsed.action;
+      let data;
+      if (action === 'profile') {
+        data = { action, ...(await client.showProfile()) };
+      } else if (action === 'workout-history') {
+        data = { action, ...(await client.workoutHistory({ since: parsed.since, through: parsed.through })) };
+      } else if (action === 'latest-workout') {
+        if (!parsed.through) {
+          throw new CliError('Latest workout lookup requires explicit --through YYYY-MM-DD from the configured local calendar.',
+            'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+        }
+        data = { action, ...(await client.latestWorkout({ through: parsed.through })) };
+      } else if (action === 'log-workout') {
+        if (!parsed.confirmed || !parsed['input-json'] || !parsed.date || !parsed['idempotency-key']) {
+          throw new CliError('Workout logging requires --confirmed, --date, --idempotency-key, and --input-json.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+        }
+        if ((config?.healthActionMode ?? env.SOMA_HEALTH_ACTION_MODE ?? 'read-only') !== 'confirmed-writes') {
+          throw new CliError('Health writes are disabled by the operator-controlled SOMA_HEALTH_ACTION_MODE.',
+            'HEALTH_OS_ACTION_WRITES_DISABLED', 2);
+        }
+        const payload = await readJsonInput(dependencies.stdin || process.stdin);
+        data = { action, ...(await client.logWorkout({
+          payload, date: parsed.date, idempotencyKey: parsed['idempotency-key']
+        })) };
+      } else if (action === 'set-working-weight') {
+        if (!parsed.confirmed || !parsed.exercise || !parsed.weight || !parsed['idempotency-key']) {
+          throw new CliError('Working-weight changes require --confirmed, --exercise, --weight, and --idempotency-key.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+        }
+        if ((config?.healthActionMode ?? env.SOMA_HEALTH_ACTION_MODE ?? 'read-only') !== 'confirmed-writes') {
+          throw new CliError('Health writes are disabled by the operator-controlled SOMA_HEALTH_ACTION_MODE.',
+            'HEALTH_OS_ACTION_WRITES_DISABLED', 2);
+        }
+        const numericPattern = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+        if (!numericPattern.test(parsed.weight) || (parsed.increment !== undefined && !numericPattern.test(parsed.increment))) {
+          throw new CliError('Weight values must be plain finite decimal numbers.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+        }
+        const weight = Number(parsed.weight);
+        const increment = parsed.increment === undefined ? undefined : Number(parsed.increment);
+        data = { action, ...(await client.setWorkingWeight({
+          exercise: parsed.exercise, weight, increment, idempotencyKey: parsed['idempotency-key']
+        })) };
+      }
+      writeResponse(command, true, data, renderHealthAction(data), stdout);
+      return 0;
+    }
+    throw new CliError('Choose doctor, init, prepare-training, or health-action.');
   } catch (error) {
     return writeFailure(command, json, error, stdout, stderr);
   }

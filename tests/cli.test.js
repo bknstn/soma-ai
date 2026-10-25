@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { runCli } from '../src/cli.js';
@@ -102,7 +103,9 @@ test('prepare-training defaults to an exact current instant and emits neutral JS
   assert.equal(envelope.command, 'prepare-training');
   assert.equal(envelope.ok, true);
   assert.equal(envelope.data.as_of, healthyPreparation.as_of.value);
-  assert.equal(stdout.value.includes('SYNTHETIC_PROFILE_PRIVATE_TEXT'), false);
+  assert.equal(envelope.data.health_context.profile.content, 'SYNTHETIC_PROFILE_PRIVATE_TEXT');
+  assert.equal(envelope.data.health_context.memory.status, 'available');
+  assert.equal(stdout.value.includes('SYNTHETIC_EVENT_TEXT_SHOULD_NOT_BE_PRESENTED'), false);
 });
 
 test('date-only as-of is rejected before the client is called', async () => {
@@ -151,6 +154,26 @@ test('accepts a full RFC3339 instant with an explicit offset', async () => {
   assert.deepEqual(received, { asOf: '2026-10-24T12:00:00+02:00' });
   assert.match(stdout.value, /Training preparation for/);
   assert.match(stdout.value, /30 kg/);
+  assert.equal(stdout.value.includes('SYNTHETIC_PROFILE_PRIVATE_TEXT'), false);
+  assert.equal(stdout.value.includes('SYNTHETIC_MEMORY_EVIDENCE_SHOULD_BE_PRESENTED_ONLY_AS_BOUNDED_CONTEXT'), false);
+});
+
+test('malformed private context fails with a safe JSON error and no excerpt leakage', async () => {
+  const stdout = sink();
+  const malformed = structuredClone(healthyPreparation);
+  malformed.profile.content = { private: 'MALFORMED_PRIVATE_PROFILE_TEXT' };
+  malformed.memory.evidence[0].provenance = [];
+  const result = await runCli(['prepare-training', '--json'], {
+    stdout,
+    stderr: sink(),
+    now: () => new Date('2026-10-24T10:00:00.000Z'),
+    client: testClient({ async prepareTraining() { return malformed; } })
+  });
+  assert.equal(result, 1);
+  const envelope = JSON.parse(stdout.value);
+  assert.equal(envelope.ok, false);
+  assert.equal(stdout.value.includes('MALFORMED_PRIVATE_PROFILE_TEXT'), false);
+  assert.equal(stdout.value.includes('SYNTHETIC_MEMORY_EVIDENCE_SHOULD_BE_PRESENTED_ONLY_AS_BOUNDED_CONTEXT'), false);
 });
 
 test('doctor presents only Health OS compatibility and workspace status', async () => {
@@ -238,6 +261,82 @@ test('init timeout explains that the workspace may need inspection before retry'
   assert.match(envelope.error.message, /may have completed/);
   assert.match(envelope.error.message, /Run doctor to inspect/);
   assert.equal(stdout.value.includes('PRIVATE_INIT_DIAGNOSTIC'), false);
+});
+
+test('health actions require JSON mode and malformed write input fails without echoing content', async () => {
+  const privateMarker = 'SYNTHETIC_PRIVATE_HEALTH_MARKER';
+  const humanOut = sink();
+  const humanErr = sink();
+  let clientCalled = false;
+  const humanCode = await runCli(['health-action', 'profile'], {
+    stdout: humanOut,
+    stderr: humanErr,
+    client: testClient({
+      async showProfile() { clientCalled = true; return { markdown: privateMarker }; }
+    })
+  });
+  assert.equal(humanCode, 2);
+  assert.equal(clientCalled, false);
+  assert.equal(humanOut.value, '');
+  assert.equal(humanErr.value.includes(privateMarker), false);
+
+  let weightWriterCalled = false;
+  const unconfirmedOut = sink();
+  const unconfirmedCode = await runCli([
+    'health-action', 'set-working-weight', '--exercise', 'squat', '--weight', '55',
+    '--idempotency-key', 'synthetic:weight:1', '--json'
+  ], {
+    stdout: unconfirmedOut,
+    stderr: sink(),
+    client: testClient({
+      async setWorkingWeight() { weightWriterCalled = true; return { weight_kg: 55 }; }
+    })
+  });
+  assert.equal(unconfirmedCode, 2);
+  assert.equal(weightWriterCalled, false);
+  assert.equal(JSON.parse(unconfirmedOut.value).error.code, 'HEALTH_OS_ACTION_INPUT_INVALID');
+
+  let latestWriterCalled = false;
+  const latestOut = sink();
+  const latestCode = await runCli(['health-action', 'latest-workout', '--json'], {
+    stdout: latestOut,
+    stderr: sink(),
+    client: testClient({ async latestWorkout() { latestWriterCalled = true; return { status: 'empty' }; } })
+  });
+  assert.equal(latestCode, 2);
+  assert.equal(latestWriterCalled, false);
+  assert.equal(JSON.parse(latestOut.value).error.code, 'HEALTH_OS_ACTION_INPUT_INVALID');
+
+  let blockedWriterCalled = false;
+  const blockedOut = sink();
+  const blockedCode = await runCli([
+    'health-action', 'set-working-weight', '--confirmed', '--exercise', 'squat', '--weight', '55',
+    '--idempotency-key', 'synthetic:weight:blocked', '--json'
+  ], {
+    stdout: blockedOut,
+    stderr: sink(),
+    client: testClient({ async setWorkingWeight() { blockedWriterCalled = true; return { weight_kg: 55 }; } })
+  });
+  assert.equal(blockedCode, 2);
+  assert.equal(blockedWriterCalled, false);
+  assert.equal(JSON.parse(blockedOut.value).error.code, 'HEALTH_OS_ACTION_WRITES_DISABLED');
+
+  const jsonOut = sink();
+  const writeCode = await runCli([
+    'health-action', 'log-workout', '--confirmed', '--date', '2026-10-24',
+    '--idempotency-key', 'synthetic:workout:1', '--input-json', '--json'
+  ], {
+    stdout: jsonOut,
+    stderr: sink(),
+    env: { SOMA_HEALTH_ACTION_MODE: 'confirmed-writes' },
+    stdin: Readable.from(['{"notes":"', privateMarker]),
+    client: testClient({
+      async logWorkout() { assert.fail('malformed input must fail before invoking the writer'); }
+    })
+  });
+  assert.equal(writeCode, 2);
+  assert.equal(JSON.parse(jsonOut.value).error.code, 'HEALTH_OS_ACTION_INPUT_INVALID');
+  assert.equal(jsonOut.value.includes(privateMarker), false);
 });
 
 test('unsupported command arguments return nonzero and do not echo supplied text', async () => {

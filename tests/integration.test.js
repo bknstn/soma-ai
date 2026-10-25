@@ -129,7 +129,7 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
       epistemic_status: 'fact',
       uncertainty: { level: 'low', note: null }
     };
-    runHealthOs(cliPath, 'context-add', workspace, event, ['--input-json', '--idempotency-key', 'synthetic-integration:event']);
+    const added = runHealthOs(cliPath, 'context-add', workspace, event, ['--input-json', '--idempotency-key', 'synthetic-integration:event']);
 
     const stdout = outputSink();
     const stderr = outputSink();
@@ -140,8 +140,55 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
     assert.equal(soma.ok, true);
     assert.equal(soma.data.recovery.status, 'available');
     assert.equal(soma.data.memory_status, 'blocked');
+    assert.equal(soma.data.health_context.profile.status, 'available');
+    assert.equal(typeof soma.data.health_context.profile.content, 'string');
+    assert.equal(soma.data.health_context.memory.status, 'blocked');
+    assert.deepEqual(soma.data.health_context.memory.evidence, []);
     assert.equal(stdout.value.includes('SYNTHETIC_BLOCKED_EVENT_TEXT'), false);
     assert.equal(stdout.value.includes('SYNTHETIC_PROFILE_PRIVATE_TEXT'), false);
+
+    const eventId = added.event.event_id;
+    const wiki = path.join(workspace, '.health-os', 'memory', 'wiki', 'synthetic-training-context.md');
+    fs.mkdirSync(path.dirname(wiki), { recursive: true });
+    fs.writeFileSync(wiki, [
+      '---',
+      'title: Synthetic training context',
+      'status: observation',
+      'confidence: medium',
+      'evidence_start: 2026-10-23',
+      'evidence_end: 2026-10-24',
+      'last_reviewed: 2026-10-24',
+      `provenance: [\"health-event:${eventId}@1\"]`,
+      'human_confirmed: false',
+      '---',
+      '',
+      'SYNTHETIC_REVIEWED_MEMORY_CONTEXT for goblet squat recovery training.',
+      ''
+    ].join('\n'));
+    runHealthOs(cliPath, 'context-revalidate-memory', workspace, undefined, ['--generation', String(added.generation)]);
+
+    const reviewedStdout = outputSink();
+    const reviewedExitCode = await runCli(['prepare-training', '--as-of', '2026-10-25T08:00:00.000Z', '--json'], {
+      client,
+      stdout: reviewedStdout,
+      stderr: outputSink()
+    });
+    assert.equal(reviewedExitCode, 0);
+    const reviewed = JSON.parse(reviewedStdout.value).data.health_context;
+    assert.equal(reviewed.memory.status, 'available');
+    assert.equal(reviewed.memory.evidence.length, 1);
+    assert.equal(reviewed.memory.evidence[0].file, 'wiki/synthetic-training-context.md');
+    assert.equal(reviewed.memory.evidence[0].status, 'observation');
+    assert.equal(reviewed.memory.evidence[0].confidence, 'medium');
+    assert.equal(reviewed.memory.evidence[0].review_status, 'current');
+    assert.deepEqual(reviewed.memory.evidence[0].provenance, [`health-event:${eventId}@1`]);
+    assert.match(reviewed.memory.evidence[0].excerpt, /SYNTHETIC_REVIEWED_MEMORY_CONTEXT/);
+    assert.equal(reviewed.memory.evidence[0].truncated, false);
+    const subjective = reviewed.subjective.selected_facts.find((item) => item.provenance_ref === `health-event:${eventId}@1`);
+    assert.equal(subjective.event_type, 'subjective.energy');
+    assert.equal(subjective.epistemic_status, 'fact');
+    assert.equal(subjective.uncertainty_level, 'low');
+    assert.equal(subjective.value, 4);
   } catch (error) {
     primaryError = error;
   } finally {
@@ -154,6 +201,144 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
     }
     if (primaryError && cleanupError) {
       throw new AggregateError([primaryError, cleanupError], 'Integration failed and temporary workspace cleanup could not be verified.');
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+  }
+});
+
+test('pinned Health OS selected profile, workout history, idempotent logging, and weight actions', {
+  skip: healthOsRepo ? false : 'Set HEALTH_OS_REPO to run the pinned local Health OS integration.'
+}, async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-health-actions-'));
+  let primaryError;
+  try {
+    const workspace = path.join(tempRoot, 'workspace');
+    const client = new HealthOsClient({ repo: healthOsRepo, workspace, timeoutMs: 30_000,
+      healthActionMode: 'confirmed-writes' });
+    await client.initWorkspace();
+
+    const tracker = path.join(workspace, '.health-os');
+    const files = path.join(tracker, 'personal', 'files');
+    fs.mkdirSync(files, { recursive: true, mode: 0o700 });
+    const selectedProfile = path.join(files, 'health-snapshot.md');
+    const profileText = [
+      '---',
+      'schema_version: 1',
+      'updated: 2026-10-24',
+      '---',
+      '',
+      'SYNTHETIC_SELECTED_HEALTH_SNAPSHOT',
+      ''
+    ].join('\n');
+    fs.writeFileSync(selectedProfile, profileText, { mode: 0o600 });
+    fs.writeFileSync(path.join(tracker, 'manifest.json'), JSON.stringify({
+      profile_path: 'personal/files/health-snapshot.md',
+      schema_version: 1
+    }, null, 2) + '\n', { mode: 0o600 });
+    fs.rmSync(path.join(files, 'profile.md'), { force: true });
+
+    const profile = await client.showProfile();
+    assert.equal(profile.profile_path, 'personal/files/health-snapshot.md');
+    assert.equal(profile.markdown, profileText);
+    assert.equal(profile.complete, true);
+
+    const weight = await client.setWorkingWeight({
+      exercise: 'squat', weight: 52.5, increment: 2.5, idempotencyKey: 'synthetic:weight:1'
+    });
+    assert.equal(weight.weight_kg, 52.5);
+    assert.equal(weight.idempotency_status, 'completed');
+    const replayedWeight = await client.setWorkingWeight({
+      exercise: 'squat', weight: 52.5, increment: 2.5, idempotencyKey: 'synthetic:weight:1'
+    });
+    assert.equal(replayedWeight.idempotency_status, 'replayed');
+
+    const workoutPayload = (notes, weightValue) => ({
+      session: {
+        day: 'A', actual_mode: 'BASE', duration_minutes: 42, session_rpe: 6,
+        energy_pre: 3, soreness_pre: 2, notes
+      },
+      exercises: [
+        { exercise_key: 'squat', sets: [
+          { weight: weightValue === 50 ? 'bw' : weightValue, reps: 5 },
+          { weight: weightValue === 50 ? 'bw' : weightValue, reps: 4 }
+        ] },
+        { exercise_key: 'bench_press', sets: [
+          { weight: 30, reps: 5 }, { weight: 30, reps: 5 }
+        ] }
+      ]
+    });
+    const first = await client.logWorkout({
+      payload: workoutPayload('', 50),
+      date: '2026-10-20',
+      idempotencyKey: 'synthetic:workout:1'
+    });
+    const firstReplay = await client.logWorkout({
+      payload: workoutPayload('', 50),
+      date: '2026-10-20',
+      idempotencyKey: 'synthetic:workout:1'
+    });
+    assert.equal(firstReplay.session_id, first.session_id);
+    assert.equal(firstReplay.idempotency_status, 'replayed');
+
+    await client.logWorkout({
+      payload: workoutPayload('SYNTHETIC_LATEST_WORKOUT_NOTE', 55),
+      date: '2026-10-22',
+      idempotencyKey: 'synthetic:workout:2'
+    });
+    const latest = await client.latestWorkout({ through: '2026-10-24' });
+    assert.equal(latest.status, 'available');
+    assert.equal(latest.latest_date, '2026-10-22');
+    assert.equal(latest.history_complete, true);
+    assert.equal(latest.latest.data.session.notes, 'SYNTHETIC_LATEST_WORKOUT_NOTE');
+    assert.equal(latest.latest.data.exercises.length, 2);
+    assert.equal(latest.latest.data.exercises[0].reps, '55x5|55x4');
+    assert.equal(latest.latest.data.exercises[0].set_count, 2);
+    assert.equal(latest.latest.data.exercises[0].weight, 55);
+    assert.equal(latest.latest.data.exercises[0].notes, 'SYNTHETIC_LATEST_WORKOUT_NOTE');
+
+    const history = await client.workoutHistory({
+      since: '2026-10-20', through: '2026-10-24'
+    });
+    assert.equal(history.complete, true);
+    assert.equal(history.items.length, 2);
+    assert.equal(history.items[0].data.session.notes, null);
+    assert.equal(history.items[0].data.exercises[0].notes, null);
+    assert.equal(history.items[0].data.exercises[0].weight, 'bw');
+    assert.equal(history.items[0].data.exercises[0].reps, 'bwx5|bwx4');
+    assert.equal(history.items[1].data.session.notes, 'SYNTHETIC_LATEST_WORKOUT_NOTE');
+
+    for (let index = 0; index < 34; index += 1) {
+      const note = `SYNTHETIC_BOUNDED_TIMELINE_${String(index).padStart(2, '0')}_${'x'.repeat(1_200)}`;
+      await client.logWorkout({
+        payload: workoutPayload(note, 55),
+        date: dateOffset('2026-08-01', index),
+        idempotencyKey: `synthetic:bounded-history:${index}`
+      });
+    }
+    const partialHistory = await client.workoutHistory({ since: '2026-08-01', through: '2026-10-24' });
+    assert.equal(partialHistory.complete, false);
+    assert.equal(partialHistory.content_truncated, true);
+    assert.ok(partialHistory.items.some((item) => item.data_truncated === true && item.data === null),
+      'native item truncation must retain metadata and discard the incomplete workout body');
+
+    const latestAfterNativeTruncation = await client.latestWorkout({ through: '2026-10-24' });
+    assert.equal(latestAfterNativeTruncation.status, 'available');
+    assert.equal(latestAfterNativeTruncation.latest_date, '2026-10-22');
+    assert.equal(latestAfterNativeTruncation.latest.data.exercises.length, 2);
+    assert.equal(latestAfterNativeTruncation.history_complete, true);
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    let cleanupError;
+    try {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+      if (fs.existsSync(tempRoot)) throw new Error('Temporary action workspace still exists after cleanup.');
+    } catch (error) {
+      cleanupError = error;
+    }
+    if (primaryError && cleanupError) {
+      throw new AggregateError([primaryError, cleanupError], 'Health action integration failed and cleanup could not be verified.');
     }
     if (primaryError) throw primaryError;
     if (cleanupError) throw cleanupError;

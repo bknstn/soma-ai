@@ -51,6 +51,8 @@ Use the provider selector again to change providers. That changes the LLM connec
 
 `npm run gateway` starts the pinned Telegram adapter in the foreground for an external service manager. The command requires explicit `HEALTH_OS_REPO` and `HEALTH_OS_WORKSPACE` paths, a private runtime home, `TELEGRAM_BOT_TOKEN`, and a comma-separated numeric `TELEGRAM_ALLOWED_USERS` list. It passes only credential variables on the runtime adapter's allowlist and these two Telegram values; the OpenAI example uses `OPENAI_API_KEY`. It refuses other enabled channels, Hermes named profiles, `.env`/`.op.env` secret files, adapter-level Telegram allowlists, and a configuration that does not silently ignore unauthorized DMs. The managed gateway supports Telegram polling; webhook and other channel settings are not supported.
 
+The private gateway environment also accepts `SOMA_HEALTH_ACTION_MODE`. Keep it at `read-only` while another service owns workspace writes; an operator may set `confirmed-writes` only after an explicit ownership transfer. User requests and skill instructions cannot change this mode.
+
 The gateway's provider and model selection live in `hermes-home/config.yaml`. For an OpenAI API configuration, use the canonical `openai-api` provider (the short alias `openai` can resolve ambiguously) and keep the key in the private service environment. The following is an example; choose the provider and model for your deployment:
 
 ```yaml
@@ -77,7 +79,7 @@ Prepare Health OS separately by following [the checkout, path configuration, and
 npm run chat
 ```
 
-Use `/soma-health` to prepare the training scenario. The Hermes skill calls SOMA's bounded JSON interface and does not initialize, write, import, sync, or migrate Health OS records. Review [the privacy model](privacy.md) before including private health context in a provider conversation.
+Use `/soma-health` to prepare the training scenario. The separate `/soma-health-actions` capability provides bounded profile/history reads and operator-gated explicit writes. Latest-workout lookups require `--through` from the configured local calendar. The Hermes skills call SOMA's bounded JSON interface and do not initialize, import, sync, or migrate Health OS records. Review [the privacy model](privacy.md) before including private health context in a provider conversation.
 
 For an offline native-skill check, use `node src/runtime/cli.js skills list`. It reads the local skill list from the isolated Hermes home and does not contact a model provider or remote skill registry.
 

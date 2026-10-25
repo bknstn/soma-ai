@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,6 +76,13 @@ function hermesFixture(t) {
       runtime_dir: 'hermes-tools',
       python_file: 'hermes-python.txt'
     },
+    assets: {
+      soul_template: 'runtimes/hermes/SOUL.md',
+      skill_source: 'skills/soma-health',
+      skill_destination: 'hermes-home/skills/soma-health',
+      action_skill_source: 'skills/soma-health-actions',
+      action_skill_destination: 'hermes-home/skills/soma-health-actions'
+    },
     commands: {
       help: ['--help'],
       chat: ['chat', '--cli'],
@@ -88,6 +96,60 @@ function hermesFixture(t) {
     }
   }, null, 2)}\n`);
   return { root, repo, source, runtime };
+}
+
+function runHermesCheckWithSkillList(t, skillList) {
+  const root = temporaryRoot(t);
+  const repo = path.join(root, 'repo');
+  const manifestPath = path.join(repo, 'runtimes', 'hermes', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/manifest.json'), 'utf8'));
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  const checkScript = path.join(repo, 'runtimes', 'hermes', 'check.sh');
+  fs.copyFileSync(path.join(repoRoot, 'runtimes/hermes/check.sh'), checkScript);
+
+  const sourceDir = path.join(repo, manifest.source_path);
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'hermes'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  execFileSync('git', ['init', '--quiet', sourceDir]);
+  execFileSync('git', ['-C', sourceDir, 'add', 'hermes']);
+  execFileSync('git', ['-C', sourceDir, '-c', 'user.name=Synthetic Test', '-c',
+    'user.email=synthetic@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
+  manifest.source_revision = execFileSync('git', ['-C', sourceDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+  let runtimeHome = path.join(root, 'runtime');
+  fs.mkdirSync(runtimeHome, { recursive: true });
+  runtimeHome = fs.realpathSync(runtimeHome);
+  const managedDirs = [manifest.runtime.user_home, manifest.runtime.working_directory,
+    manifest.runtime.hermes_home, manifest.runtime.managed_dir, manifest.runtime.runtime_dir];
+  for (const relative of managedDirs) fs.mkdirSync(path.join(runtimeHome, relative), { recursive: true });
+  const hermesHome = path.join(runtimeHome, manifest.runtime.hermes_home);
+  fs.writeFileSync(path.join(hermesHome, 'SOUL.md'), 'synthetic\n');
+  fs.mkdirSync(path.join(hermesHome, 'skills', 'soma-health'), { recursive: true });
+  fs.mkdirSync(path.join(hermesHome, 'skills', 'soma-health-actions'), { recursive: true });
+  fs.writeFileSync(path.join(hermesHome, 'skills', 'soma-health', 'SKILL.md'), 'synthetic\n');
+  fs.writeFileSync(path.join(hermesHome, 'skills', 'soma-health-actions', 'SKILL.md'), 'synthetic\n');
+
+  const hermesPython = path.join(runtimeHome, manifest.runtime.runtime_dir, 'python-3.14', 'bin', 'python3');
+  fs.mkdirSync(path.dirname(hermesPython), { recursive: true });
+  fs.writeFileSync(hermesPython, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo 'Python 3.14.9'; exit 0; fi
+if [ "$1" = "-c" ]; then echo '22.8'; exit 0; fi
+if [ "$1" = "-" ]; then cat >/dev/null; echo 'gateway-authz-ok'; exit 0; fi
+if [ "$2" = "skills" ] && [ "$3" = "list" ]; then printf '%s\n' "$SOMA_TEST_SKILL_LIST"; exit 0; fi
+exit 0
+`, { mode: 0o700 });
+  fs.writeFileSync(path.join(runtimeHome, manifest.runtime.python_file), hermesPython + '\n');
+  fs.writeFileSync(path.join(runtimeHome, '.soma-runtime.json'), JSON.stringify({
+    schema_version: 1, managed_by: 'soma-ai', runtime: 'hermes',
+    source_revision: manifest.source_revision, setup_status: 'ready',
+    created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z'
+  }));
+  return spawnSync('bash', [checkScript], {
+    encoding: 'utf8',
+    env: { ...process.env, SOMA_RUNTIME_HOME: runtimeHome, SOMA_TEST_SKILL_LIST: skillList }
+  });
 }
 
 function validHermesCheck(overrides = {}) {
@@ -122,6 +184,7 @@ test('provider-neutral manager isolates env and allows provider-owned argv', asy
     XDG_CONFIG_HOME: path.join(root, 'external-xdg'),
     OPENAI_API_KEY: 'must-not-pass',
     FAKE_AGENT_KEY: 'only-for-chat',
+    SOMA_HEALTH_ACTION_MODE: 'confirmed-writes',
     HEALTH_OS_REPO: healthRepo,
     HEALTH_OS_WORKSPACE: healthWorkspace
   };
@@ -169,6 +232,7 @@ test('provider-neutral manager isolates env and allows provider-owned argv', asy
     assert.equal(env.FAKE_AGENT_KEY, undefined, 'provider credentials must not reach setup or inspect');
     assert.equal(env.HEALTH_OS_REPO, undefined);
     assert.equal(env.HEALTH_OS_WORKSPACE, undefined);
+    assert.equal(env.SOMA_HEALTH_ACTION_MODE, undefined, 'operator mode must not reach setup or inspect');
   }
 
   await manager.chat();
@@ -182,11 +246,29 @@ test('provider-neutral manager isolates env and allows provider-owned argv', asy
   assert.equal(spawnCalls[0].options.env.HOME, path.join(canonicalRuntimeHome, 'user-home'));
   assert.equal(spawnCalls[0].options.env.HEALTH_OS_REPO, healthRepo);
   assert.equal(spawnCalls[0].options.env.HEALTH_OS_WORKSPACE, healthWorkspace);
+  assert.equal(spawnCalls[0].options.env.SOMA_HEALTH_ACTION_MODE, 'confirmed-writes');
   await manager.skills();
   assert.equal(spawnCalls.length, 2);
   assert.deepEqual(spawnCalls[1].args, ['--vendor-specific-local-list']);
   assert.equal(spawnCalls[1].options.env.HEALTH_OS_REPO, undefined);
+  assert.equal(spawnCalls[1].options.env.SOMA_HEALTH_ACTION_MODE, undefined);
   assert.equal(spawnCalls[1].options.env.FAKE_AGENT_KEY, undefined);
+});
+
+test('managed chat rejects an invalid operator health action mode', async (t) => {
+  const root = temporaryRoot(t);
+  const runtimeHome = path.join(root, 'runtime');
+  const healthRepo = path.join(root, 'health-os');
+  const workspace = path.join(root, 'health-workspace');
+  fs.mkdirSync(healthRepo);
+  fs.mkdirSync(workspace);
+  const manager = new RuntimeManager({
+    runtime: 'fake-agent', runtimeHome, repoRoot,
+    env: { HEALTH_OS_REPO: healthRepo, HEALTH_OS_WORKSPACE: workspace, SOMA_HEALTH_ACTION_MODE: 'enable-everything' },
+    providers: { 'fake-agent': fakeProvider() }, spawnProcess: fakeSpawn([])
+  });
+  await manager.setup();
+  await assert.rejects(manager.chat(), { code: 'SOMA_RUNTIME_HEALTH_ACTION_MODE_INVALID' });
 });
 
 test('managed gateway passes only bounded credentials and forwards clean shutdown signals', async (t) => {
@@ -211,6 +293,7 @@ test('managed gateway passes only bounded credentials and forwards clean shutdow
       assert.equal(context.env.OPENAI_API_KEY, undefined);
       assert.equal(context.env.HEALTH_OS_REPO, healthRepo);
       assert.equal(context.env.HEALTH_OS_WORKSPACE, workspace);
+      assert.equal(context.env.SOMA_HEALTH_ACTION_MODE, 'read-only');
       assert.equal(context.env.HOME, path.join(fs.realpathSync(runtimeHome), 'user-home'));
       return {
         executable: process.execPath,
@@ -623,6 +706,16 @@ test('Hermes gateway refuses hidden secret files, named profiles, and widened co
   assert.equal(calls.length, 1);
   assert.match(calls[0].args[1], /^import hermes_bootstrap\n/,
     'gateway config preflight must enter Hermes PM environment before imports');
+});
+
+test('Hermes readiness requires both exact loaded skill names', (t) => {
+  const actionOnly = runHermesCheckWithSkillList(t, 'soma-health-actions');
+  assert.equal(actionOnly.status, 1);
+  assert.equal(JSON.parse(actionOnly.stdout).error, 'skill_not_loaded');
+
+  const bothLoaded = runHermesCheckWithSkillList(t, 'soma-health\nsoma-health-actions');
+  assert.equal(bothLoaded.status, 0);
+  assert.equal(JSON.parse(bothLoaded.stdout).ok, true);
 });
 
 test('pinned Telegram dependency remains native and offline-verifiable', () => {

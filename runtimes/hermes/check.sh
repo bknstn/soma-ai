@@ -73,6 +73,7 @@ python_file="$runtime_home/$python_file_name"
 [ ! -L "$managed_user_home" ] && [ ! -L "$working_directory" ] && [ ! -L "$hermes_home" ] && [ ! -L "$managed_config" ] && [ ! -L "$hermes_runtime_dir" ] || fail 'runtime_directory_symlink'
 [ -f "$hermes_home/SOUL.md" ] || fail 'persona_missing'
 [ -f "$hermes_home/skills/soma-health/SKILL.md" ] || fail 'skill_missing'
+[ -f "$hermes_home/skills/soma-health-actions/SKILL.md" ] || fail 'action_skill_missing'
 [ -f "$python_file" ] || fail 'python_locator_missing'
 if ! node --input-type=module -e '
   import fs from "node:fs";
@@ -120,10 +121,14 @@ if ! skill_output="$(cd "$source_dir" && "$hermes_python" "$source_dir/hermes" s
   emit false "$source_revision" true "$python_version" true false false false 'skill_list_failed'
   exit 1
 fi
-case "$skill_output" in
-  *soma-health*) ;;
-  *) emit false "$source_revision" true "$python_version" true false false false 'skill_not_loaded'; exit 1 ;;
-esac
+if ! [[ "$skill_output" =~ (^|[^[:alnum:]_-])soma-health([^[:alnum:]_-]|$) ]]; then
+  emit false "$source_revision" true "$python_version" true false false false 'skill_not_loaded'
+  exit 1
+fi
+if ! [[ "$skill_output" =~ (^|[^[:alnum:]_-])soma-health-actions([^[:alnum:]_-]|$) ]]; then
+  emit false "$source_revision" true "$python_version" true false false false 'action_skill_not_loaded'
+  exit 1
+fi
 
 if ! installed_telegram_version="$(cd "$source_dir" && "$hermes_python" -c 'import hermes_bootstrap; import telegram; from telegram.ext import Application; print(telegram.__version__)' 2>/dev/null)"; then
   emit false "$source_revision" true "$python_version" true true false false 'telegram_dependency_missing'

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const HEALTH_OS_EXPECTED_REVISION = '363204694ea805256595bf30c72d25c9361595d1';
+export const HEALTH_OS_EXPECTED_REVISION = '5cb3a648f983a2ac10cd9a8d3583c06a3083a5d3';
 export const HEALTH_OS_PACKAGE_VERSION = '0.1.0';
 export const HEALTH_OS_CLI_SCHEMA_VERSION = 1;
 export const HEALTH_OS_WORKSPACE_SCHEMA_VERSION = 1;
@@ -42,12 +42,17 @@ export function loadConfig(overrides = {}, env = process.env) {
   if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < 1_024 || maxOutputBytes > HEALTH_OS_MAX_JSON_OUTPUT_BYTES) {
     throw new TypeError(`Health OS output limit must be an integer from 1024 to ${HEALTH_OS_MAX_JSON_OUTPUT_BYTES} bytes`);
   }
+  const healthActionMode = overrides.healthActionMode ?? env.SOMA_HEALTH_ACTION_MODE ?? 'read-only';
+  if (!['read-only', 'confirmed-writes'].includes(healthActionMode)) {
+    throw new TypeError('SOMA_HEALTH_ACTION_MODE must be read-only or confirmed-writes');
+  }
 
   return Object.freeze({
     repo,
     workspace,
     timeoutMs,
     maxOutputBytes,
+    healthActionMode,
     expectedRevision: HEALTH_OS_EXPECTED_REVISION,
     expectedPackageVersion: HEALTH_OS_PACKAGE_VERSION,
     cliSchemaVersion: HEALTH_OS_CLI_SCHEMA_VERSION,

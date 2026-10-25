@@ -9,7 +9,10 @@
   },
   "profile": {
     "status": "available",
-    "content": "SYNTHETIC_PROFILE_PRIVATE_TEXT"
+    "path": "personal/files/profile.md",
+    "updated": "2026-10-20",
+    "content": "SYNTHETIC_PROFILE_PRIVATE_TEXT",
+    "truncated": false
   },
   "session_selection": {
     "selected_day_type": "A",
@@ -49,13 +52,57 @@
   },
   "subjective": {
     "applied": [
-      { "reason": "SYNTHETIC_EVENT_TEXT_SHOULD_NOT_BE_PRESENTED" }
-    ]
+      {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "provenance_ref": "health-event:11111111-1111-4111-8111-111111111111@1",
+        "event_type": "subjective.energy",
+        "occurred": { "start": "2026-10-24T09:00:00Z", "end": null, "precision": "instant", "timezone": "UTC" },
+        "epistemic_status": "fact",
+        "uncertainty_level": "low",
+        "value": 2,
+        "target_sets_delta": -1,
+        "reason": "SYNTHETIC_EVENT_TEXT_SHOULD_NOT_BE_PRESENTED",
+        "source": { "ref": "SYNTHETIC_SOURCE_PATH_SHOULD_NOT_BE_PRESENTED" }
+      }
+    ],
+    "selected_facts": [
+      {
+        "provenance_ref": "health-event:11111111-1111-4111-8111-111111111111@1",
+        "event_type": "subjective.energy",
+        "occurred": { "start": "2026-10-24T09:00:00Z", "end": null, "precision": "instant", "timezone": "UTC" },
+        "epistemic_status": "fact",
+        "uncertainty_level": "low",
+        "value": 2
+      }
+    ],
+    "conversation_signals": [
+      {
+        "provenance_ref": "health-event:22222222-2222-4222-8222-222222222222@1",
+        "event_type": "subjective.pain",
+        "occurred": { "start": "2026-10-24T08:00:00Z", "end": null, "precision": "instant", "timezone": "UTC" },
+        "epistemic_status": "pending",
+        "uncertainty_level": "high",
+        "value": 4,
+        "reason": "SYNTHETIC_EVENT_TEXT_SHOULD_NOT_BE_PRESENTED"
+      }
+    ],
+    "truncated": false
   },
   "memory": {
     "status": "available",
     "evidence": [
-      { "excerpt": "SYNTHETIC_MEMORY_EVIDENCE_SHOULD_NOT_BE_PRESENTED" }
+      {
+        "file": "wiki/synthetic-training.md",
+        "title": "Synthetic training context",
+        "status": "observation",
+        "confidence": "high",
+        "evidence_start": "2026-10-01",
+        "evidence_end": "2026-10-20",
+        "last_reviewed": "2026-10-22",
+        "review_status": "current",
+        "provenance": ["synthetic://workout-history#example"],
+        "excerpt": "SYNTHETIC_MEMORY_EVIDENCE_SHOULD_BE_PRESENTED_ONLY_AS_BOUNDED_CONTEXT"
+      }
     ]
   },
   "gaps": [],

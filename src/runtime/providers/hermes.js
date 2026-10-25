@@ -58,6 +58,11 @@ function readManifest(repoRoot) {
       JSON.stringify(manifest.commands.chat) !== JSON.stringify(HERMES_COMMANDS.chat) ||
       JSON.stringify(manifest.commands.list_local_skills) !== JSON.stringify(HERMES_COMMANDS.list_local_skills) ||
       JSON.stringify(manifest.commands.gateway) !== JSON.stringify(HERMES_COMMANDS.gateway) ||
+      !manifest.assets || manifest.assets.soul_template !== 'runtimes/hermes/SOUL.md' ||
+      manifest.assets.skill_source !== 'skills/soma-health' ||
+      manifest.assets.skill_destination !== 'hermes-home/skills/soma-health' ||
+      manifest.assets.action_skill_source !== 'skills/soma-health-actions' ||
+      manifest.assets.action_skill_destination !== 'hermes-home/skills/soma-health-actions' ||
       !manifest.gateway_dependencies || manifest.gateway_dependencies.extra !== 'telegram' ||
       manifest.gateway_dependencies.telegram_package !== 'python-telegram-bot' ||
       manifest.gateway_dependencies.telegram_version !== '22.8') {

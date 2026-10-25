@@ -6,16 +6,18 @@ SOMA's first workflow prepares a training session from a local Health OS workspa
 
 - Node.js 22.13.0 or newer
 - Git
-- Health OS at the compatible revision `363204694ea805256595bf30c72d25c9361595d1`
+- Health OS at the compatible revision `5cb3a648f983a2ac10cd9a8d3583c06a3083a5d3`
 
 If Health OS is not available, clone it into a separate directory and check out the pinned revision:
 
 ```sh
 git clone https://github.com/bknstn/health-os.git "$HOME/src/health-os-soma"
-git -C "$HOME/src/health-os-soma" checkout --detach 363204694ea805256595bf30c72d25c9361595d1
+git -C "$HOME/src/health-os-soma" checkout --detach 5cb3a648f983a2ac10cd9a8d3583c06a3083a5d3
 ```
 
 An existing checkout can be used if its `HEAD` matches that SHA and its executable contract files are unchanged. SOMA does not reset or update the Health OS checkout.
+
+This revision is the reviewed compatibility target for this SOMA integration, not a claim about the latest Health OS release; other revisions require a compatibility review.
 
 ## Configure paths
 
@@ -55,7 +57,7 @@ For machine-readable output, call the CLI directly so npm's script banner does n
 node src/cli.js prepare-training --as-of 2026-10-24T08:00:00Z --json
 ```
 
-The versioned JSON envelope contains a bounded summary with the plan, recovery status and rationale, source references, and gaps. It excludes profile text, event payloads, raw observations, and memory evidence.
+The versioned JSON envelope contains a bounded summary with the plan, recovery status and rationale, source references, and gaps. It may also include the exact selected profile excerpt, bounded subjective-event context, and memory evidence with provenance and truncation metadata. Treat those fields as private health context; the default human-readable formatter omits their contents.
 
 ## Verify
 

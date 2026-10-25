@@ -29,7 +29,9 @@
   "assets": {
     "soul_template": "runtimes/hermes/SOUL.md",
     "skill_source": "skills/soma-health",
-    "skill_destination": "hermes-home/skills/soma-health"
+    "skill_destination": "hermes-home/skills/soma-health",
+    "action_skill_source": "skills/soma-health-actions",
+    "action_skill_destination": "hermes-home/skills/soma-health-actions"
   },
   "commands": {
     "entrypoint": "third_party/hermes-agent/hermes",

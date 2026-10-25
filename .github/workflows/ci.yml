@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bknstn/health-os
-          ref: 363204694ea805256595bf30c72d25c9361595d1
+          ref: 5cb3a648f983a2ac10cd9a8d3583c06a3083a5d3
           path: health-os
           persist-credentials: false
 

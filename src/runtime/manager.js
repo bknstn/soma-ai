@@ -480,7 +480,14 @@ export class RuntimeManager {
         code: 'SOMA_RUNTIME_HOME_WORKSPACE_OVERLAP'
       });
     }
+    let healthActionMode = 'read-only';
     if (requireHealthConfig) {
+      healthActionMode = this.#env.SOMA_HEALTH_ACTION_MODE ?? 'read-only';
+      if (!['read-only', 'confirmed-writes'].includes(healthActionMode)) {
+        throw new RuntimeError('SOMA_HEALTH_ACTION_MODE must be read-only or confirmed-writes.', {
+          code: 'SOMA_RUNTIME_HEALTH_ACTION_MODE_INVALID'
+        });
+      }
       if (!configuredHealthOsRepo || !healthWorkspace) {
         throw new RuntimeError('Chat requires explicit HEALTH_OS_REPO and HEALTH_OS_WORKSPACE paths.', {
           code: 'SOMA_RUNTIME_HEALTH_CONFIG_REQUIRED'
@@ -507,6 +514,7 @@ export class RuntimeManager {
     if (requireHealthConfig) {
       env.HEALTH_OS_REPO = configuredHealthOsRepo;
       env.HEALTH_OS_WORKSPACE = this.#env.HEALTH_OS_WORKSPACE;
+      env.SOMA_HEALTH_ACTION_MODE = healthActionMode;
     }
     if (operation === 'chat' || operation === 'gateway') {
       const credentialEnv = operation === 'gateway'
