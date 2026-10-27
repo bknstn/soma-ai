@@ -194,6 +194,8 @@ class ContinuityTest(unittest.TestCase):
         filename.chmod(0o644)
         with self.assertRaises(feature.ContinuityError):
             ledger.list()
+        self.assertIn("unavailable", self.prompt())
+        self.assertNotIn("unavailable", self.prompt(HERMES_SESSION_CHAT_TYPE="group"))
         filename.chmod(0o600)
         db = sqlite3.connect(filename)
         db.execute("PRAGMA user_version=99")
