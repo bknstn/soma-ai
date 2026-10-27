@@ -31,6 +31,8 @@ See the [Hermes setup and usage guide](docs/hermes.md) for isolated runtime setu
 
 Inspect or configure the pinned runtime's context-compression policy with `npm run runtime:context`. The [context management guide](docs/context-management.md) documents validated policy patches, offline token budgets, gateway message limits, and disable/restore steps.
 
+The opt-in [confirmed continuity component](docs/continuity.md) preserves bounded agreements and commitments between Telegram DM sessions, with explicit confirmation for every change and separate storage for each user.
+
 ## Self-hosted deployment
 
 SOMA includes a bounded Telegram gateway command, a systemd user-service template, and a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [deployment guide](docs/vps.md) to configure your own host, isolated paths, credentials, and service. SSH access requires an explicit `SOMA_VPS_SSH_HOST` value; keep actual connection details outside Git.

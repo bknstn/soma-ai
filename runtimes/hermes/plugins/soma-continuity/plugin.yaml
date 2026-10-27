@@ -1,0 +1,6 @@
+name: soma-continuity
+version: 1.0.0
+description: Explicitly confirmed, bounded continuity for Telegram direct conversations.
+kind: standalone
+provides_hooks:
+  - pre_llm_call
