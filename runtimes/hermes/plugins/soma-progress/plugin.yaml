@@ -1,0 +1,16 @@
+name: soma-progress
+version: 1.0.0
+description: One factual notice during a long authorized Telegram direct turn.
+kind: standalone
+provides_hooks:
+  - pre_gateway_dispatch
+  - post_gateway_admission
+  - pre_llm_call
+  - post_llm_call
+  - agent_loop_stopped
+  - on_session_end
+  - on_session_reset
+  - on_human_input_request
+  - on_human_input_resolved
+  - pre_approval_request
+  - post_approval_response

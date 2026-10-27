@@ -33,6 +33,8 @@ Inspect or configure the pinned runtime's context-compression policy with `npm r
 
 The opt-in [confirmed continuity component](docs/continuity.md) preserves bounded agreements and commitments between Telegram DM sessions, with explicit confirmation for every change and separate storage for each user.
 
+The opt-in [long-task progress component](docs/progress.md) sends one factual status notice for a slow Telegram DM request, suppressing notices during user-input waits and after completion, cancellation, or session replacement.
+
 ## Self-hosted deployment
 
 SOMA includes a bounded Telegram gateway command, a systemd user-service template, and a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [deployment guide](docs/vps.md) to configure your own host, isolated paths, credentials, and service. SSH access requires an explicit `SOMA_VPS_SSH_HOST` value; keep actual connection details outside Git.

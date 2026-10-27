@@ -1,4 +1,4 @@
-"""Idempotently install the opt-in continuity component into an explicit Hermes home."""
+"""Idempotently install SOMA's opt-in conversation components into an explicit home."""
 
 import importlib.util
 import io
@@ -10,6 +10,9 @@ import tempfile
 
 def install(source, home, yaml):
     source, home = Path(source), Path(home)
+    component = source.name
+    if component not in {"soma-continuity", "soma-progress"}:
+        raise ValueError("Unknown conversation component")
     if not home.is_absolute() or home.is_symlink() or home.resolve() != home or not home.is_dir():
         raise ValueError("Invalid managed home")
     # Reuse the bounded file and YAML readers from the versioned context component.
@@ -24,10 +27,10 @@ def install(source, home, yaml):
     enabled, disabled = plugins.setdefault("enabled", []), plugins.get("disabled", [])
     if not isinstance(enabled, list) or not isinstance(disabled, list):
         raise ValueError("Invalid plugin selections")
-    if "soma-continuity" not in disabled and "soma-continuity" not in enabled:
-        enabled.append("soma-continuity")
+    if component not in disabled and component not in enabled:
+        enabled.append(component)
     # Feature remains off until an operator explicitly opts in. Preserve all settings.
-    target = home / "plugins" / "soma-continuity"
+    target = home / "plugins" / component
     for directory in (target.parent, target):
         directory.mkdir(mode=0o700, exist_ok=True)
         if directory.is_symlink() or not directory.is_dir():
@@ -52,7 +55,7 @@ def install(source, home, yaml):
             continue
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(dir=filename.parent, prefix=".soma-continuity-", delete=False) as stream:
+            with tempfile.NamedTemporaryFile(dir=filename.parent, prefix=f".{component}-", delete=False) as stream:
                 temporary = Path(stream.name)
                 stream.write(raw)
                 stream.flush()
@@ -70,4 +73,4 @@ if __name__ == "__main__":
     try:
         install(sys.argv[1], sys.argv[2], roundtrip_yaml())
     except Exception:
-        raise SystemExit("Continuity installation failed; inspect private paths and configuration.") from None
+        raise SystemExit("Conversation component installation failed; inspect private paths and configuration.") from None

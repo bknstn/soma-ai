@@ -189,13 +189,15 @@ for skill_source in "$skill_source" "$action_skill_source"; do
   done
 done
 
-printf 'Installing the opt-in SOMA continuity component…\n' >&2
+for component in soma-continuity soma-progress; do
+printf 'Installing opt-in SOMA component: %s…\n' "$component" >&2
 (cd "$source_dir" && "$hermes_python" -B -c '
 import hermes_bootstrap
 import runpy
 import sys
 sys.argv = sys.argv[1:]
 runpy.run_path(sys.argv[0], run_name="__main__")
-' "$script_dir/install-continuity.py" "$script_dir/plugins/soma-continuity" "$hermes_home") >&2
+' "$script_dir/install-continuity.py" "$script_dir/plugins/$component" "$hermes_home") >&2
+done
 
 printf 'Hermes runtime setup completed under SOMA_RUNTIME_HOME.\n' >&2
