@@ -13,6 +13,7 @@
     "runtime:setup": "node src/runtime/cli.js setup",
     "runtime:doctor": "node src/runtime/cli.js doctor",
     "runtime:configure": "node src/runtime/cli.js configure",
+    "runtime:context": "node src/runtime/cli.js context",
     "runtime:provider-deps": "node src/runtime/cli.js provider-deps",
     "chat": "node src/runtime/cli.js chat",
     "gateway": "node src/runtime/cli.js gateway",

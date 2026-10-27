@@ -398,6 +398,20 @@ export class RuntimeManager {
     return this.#launch('configure', [], { requireHealthConfig: false });
   }
 
+  async contextPolicy({ file, contextWindow } = {}) {
+    const context = this.#context({ operation: 'context-policy' });
+    const state = await this.inspect();
+    if (!state.ready) {
+      throw new RuntimeError('Run runtime setup before configuring context management.', { code: 'SOMA_RUNTIME_NOT_READY' });
+    }
+    if (typeof this.#provider.contextPolicy !== 'function') {
+      throw new RuntimeError('The selected runtime does not support context policy configuration.', {
+        code: 'SOMA_RUNTIME_CONTEXT_UNSUPPORTED', exitCode: 2
+      });
+    }
+    return this.#provider.contextPolicy({ context, file, contextWindow });
+  }
+
   async installProviderDependencies(providerName) {
     if (typeof providerName !== 'string' || !/^[a-z][a-z0-9-]{0,39}$/.test(providerName)) {
       throw new RuntimeError('Choose a supported model provider name.', {

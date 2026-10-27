@@ -30,6 +30,54 @@ const MODEL_PROVIDER_EXTRAS = new Map([
   ['vertex', 'vertex']
 ]);
 
+// Bootstrap only the pinned, isolated interpreter; the helper never resolves model metadata online.
+const CONTEXT_POLICY_RUNNER = `
+import hermes_bootstrap
+import runpy
+import sys
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+`;
+
+function contextPolicyResult(result) {
+  const invalid = () => fail('The context policy helper failed. Check the policy JSON and isolated runtime configuration.',
+    'SOMA_HERMES_CONTEXT_INVALID');
+  if (result?.error || result?.signal || ![0, 2].includes(result?.status)) throw invalid();
+  let payload;
+  try { payload = JSON.parse(boundedString(result.stdout, 'SOMA_HERMES_OUTPUT_LIMIT')); } catch { throw invalid(); }
+  if (result.status !== 0) {
+    const messages = {
+      invalid_policy: 'Context policy must match the documented schema and supported value ranges.',
+      invalid_config: 'The isolated context configuration is invalid or uses unsafe file paths.',
+      config_changed: 'Runtime configuration changed during this operation. Retry while configuration is idle.',
+      budget_unavailable: 'Could not calculate context budgets with the pinned runtime. No policy changes were applied.'
+    };
+    throw fail(messages[payload?.error] || 'The context policy helper failed without applying changes.',
+      'SOMA_HERMES_CONTEXT_INVALID');
+  }
+  const settings = payload?.policy?.compression;
+  const budget = payload?.budget;
+  const fields = ['enabled', 'threshold', 'threshold_tokens', 'target_ratio', 'tail_mode', 'protect_first_n',
+    'protect_last_n', 'min_tail_user_messages', 'hygiene_hard_message_limit'];
+  if (payload?.schema_version !== 1 || typeof payload?.changed !== 'boolean' || payload.policy?.schema_version !== 1 ||
+      !settings || typeof settings !== 'object' || fields.some((key) => !Object.hasOwn(settings, key)) ||
+      Object.keys(settings).length !== fields.length || typeof settings.enabled !== 'boolean' ||
+      !['lean', 'legacy'].includes(settings.tail_mode) ||
+      fields.filter((key) => !['enabled', 'tail_mode'].includes(key)).some((key) =>
+        !(key === 'threshold_tokens' && settings[key] === null) && !Number.isFinite(settings[key])) ||
+      !budget || !['window_required', 'route_required', 'configured_window', 'preview_window',
+        'external_engine', 'native_compaction', 'disabled'].includes(budget.status)) throw invalid();
+  const budgetFields = ['context_window', 'output_reservation', 'effective_threshold_ratio', 'trigger_tokens',
+    'tail_budget_tokens', 'summary_max_tokens', 'gateway_trigger_tokens'];
+  if (budgetFields.some((key) => budget[key] !== null && !Number.isFinite(budget[key]))) throw invalid();
+  return {
+    schema_version: 1,
+    changed: payload.changed,
+    policy: { schema_version: 1, compression: Object.fromEntries(fields.map((key) => [key, settings[key]])) },
+    budget: { status: budget.status, ...Object.fromEntries(budgetFields.map((key) => [key, budget[key]])) }
+  };
+}
+
 function fail(message, code) {
   return new RuntimeError(message, { code });
 }
@@ -450,6 +498,30 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
         timeout: CHECK_TIMEOUT_MS, outputMode: 'check', run: spawnSyncImpl
       });
       return parseCheck(stdout, manifest);
+    },
+    async contextPolicy({ context, file, contextWindow }) {
+      sourceFiles(root);
+      if ((file !== undefined && (typeof file !== 'string' || !path.isAbsolute(file) || file.includes('\0'))) ||
+          (contextWindow !== undefined && (!Number.isInteger(contextWindow) || contextWindow < 1 || contextWindow > 10000000))) {
+        throw fail('Invalid context policy file or preview window.', 'SOMA_HERMES_CONTEXT_INVALID');
+      }
+      const helper = path.resolve(repoRoot, 'runtimes/hermes/context-policy.py');
+      let stat;
+      try { stat = fs.lstatSync(helper); } catch { throw fail('The context policy helper is missing.', 'SOMA_HERMES_CONTEXT_INVALID'); }
+      if (!stat.isFile() || stat.isSymbolicLink()) throw fail('The context policy helper is invalid.', 'SOMA_HERMES_CONTEXT_INVALID');
+      const python = readPythonPath(context, root.runtime.python_file, root.runtime.runtime_dir);
+      const args = ['-B', '-c', CONTEXT_POLICY_RUNNER, helper];
+      if (file !== undefined) args.push('--file', file);
+      if (contextWindow !== undefined) args.push('--context-window', String(contextWindow));
+      let result;
+      try {
+        result = spawnSyncImpl(python, args, {
+          cwd: root.sourceRoot, env: context.env, shell: false, encoding: 'utf8',
+          timeout: GATEWAY_CONFIG_CHECK_TIMEOUT_MS, maxBuffer: MAX_CHECK_OUTPUT_BYTES,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+      } catch { throw fail('Could not run the context policy helper.', 'SOMA_HERMES_CONTEXT_INVALID'); }
+      return contextPolicyResult(result);
     },
     validateLaunch({ action, args }) {
       const allowed = {

@@ -13,13 +13,16 @@ Commands:
   chat       Start the selected runtime's local interactive chat
   gateway    Start the managed messaging gateway (Telegram only)
   configure  Open the selected runtime's model provider configuration
+  context    Inspect context policy; --file PATH applies a validated JSON policy
   provider-deps <name>  Install an optional SDK for anthropic, bedrock, or vertex
   skills     List locally installed skills (read-only)
 
 Options:
   --runtime NAME       Agent runtime (default: hermes, or SOMA_RUNTIME)
   --runtime-home PATH  Isolated runtime state directory (or SOMA_RUNTIME_HOME)
-  --json               Emit a versioned response for setup or doctor
+  --json               Emit a versioned response for setup, doctor, or context
+  --file PATH          Context policy patch (context only)
+  --context-window N  Preview context budgets for an explicit window (context only)
   --help               Show this help
 
 Chat smoke check:
@@ -47,10 +50,11 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
-    if (token === '--runtime' || token === '--runtime-home') {
+    if (['--runtime', '--runtime-home', '--file', '--context-window'].includes(token)) {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new RuntimeCliError(`${token} requires a value.`);
-      const key = token === '--runtime' ? 'runtime' : 'runtimeHome';
+      const key = { '--runtime': 'runtime', '--runtime-home': 'runtimeHome', '--file': 'file',
+        '--context-window': 'contextWindow' }[token];
       if (options[key] !== undefined) throw new RuntimeCliError(`${token} may be supplied only once.`);
       options[key] = value;
       index += 2;
@@ -62,9 +66,9 @@ function parseArgs(argv) {
     index += 1;
   }
 
-  if (!command) throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, provider-deps, or skills.');
-  if (!['setup', 'doctor', 'chat', 'gateway', 'configure', 'provider-deps', 'skills'].includes(command)) {
-    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, provider-deps, or skills.');
+  if (!command) throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, context, provider-deps, or skills.');
+  if (!['setup', 'doctor', 'chat', 'gateway', 'configure', 'context', 'provider-deps', 'skills'].includes(command)) {
+    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, context, provider-deps, or skills.');
   }
   if (command === 'chat') {
     if (extra.length === 1 && (extra[0] === '--help' || extra[0] === '-h')) options.chatHelp = true;
@@ -81,8 +85,18 @@ function parseArgs(argv) {
   } else if (extra.length > 0) {
     throw new RuntimeCliError(`${command} does not accept additional arguments.`);
   }
-  if (options.json && !['setup', 'doctor'].includes(command)) {
-    throw new RuntimeCliError('--json is available only with setup or doctor.');
+  if (command !== 'context' && (options.file !== undefined || options.contextWindow !== undefined)) {
+    throw new RuntimeCliError('--file and --context-window are available only with context.');
+  }
+  if (options.contextWindow !== undefined) {
+    if (!/^[1-9][0-9]*$/.test(options.contextWindow) || !Number.isSafeInteger(Number(options.contextWindow)) ||
+        Number(options.contextWindow) > 10000000) {
+      throw new RuntimeCliError('--context-window must be an integer from 1 to 10000000.');
+    }
+    options.contextWindow = Number(options.contextWindow);
+  }
+  if (options.json && !['setup', 'doctor', 'context'].includes(command)) {
+    throw new RuntimeCliError('--json is available only with setup, doctor, or context.');
   }
   return { help: false, command, ...options };
 }
@@ -141,12 +155,20 @@ export async function runRuntimeCli(argv, dependencies = {}) {
       response(command, json, data, `Agent runtime ${data.runtime}: ${data.status}.\n`, stdout);
       return 0;
     }
+    if (command === 'context') {
+      const data = await manager.contextPolicy({
+        file: parsed.file === undefined ? undefined : path.resolve(parsed.file),
+        contextWindow: parsed.contextWindow
+      });
+      response(command, json, data, `${JSON.stringify(data, null, 2)}\n`, stdout);
+      return 0;
+    }
     if (command === 'chat') return await (parsed.chatHelp ? manager.help() : manager.chat());
     if (command === 'gateway') return await manager.gateway();
     if (command === 'configure') return await manager.configure();
     if (command === 'provider-deps') return await manager.installProviderDependencies(parsed.providerName);
     if (command === 'skills') return await manager.skills({ action: 'list' });
-    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, provider-deps, or skills.');
+    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, context, provider-deps, or skills.');
   } catch (error) {
     return fail(command, json, error, stdout, stderr);
   }

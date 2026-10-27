@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "compression": {
+    "enabled": true,
+    "threshold": 0.75,
+    "threshold_tokens": null,
+    "target_ratio": 0.2,
+    "tail_mode": "lean",
+    "protect_first_n": 3,
+    "protect_last_n": 20,
+    "min_tail_user_messages": 3,
+    "hygiene_hard_message_limit": 5000
+  }
+}

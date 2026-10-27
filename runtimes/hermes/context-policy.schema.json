@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SOMA context policy patch v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "compression"],
+  "properties": {
+    "schema_version": {"const": 1, "type": "integer"},
+    "compression": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "threshold": {"type": "number", "minimum": 0.1, "maximum": 0.95},
+        "threshold_tokens": {"type": ["integer", "null"], "minimum": 1, "maximum": 10000000},
+        "target_ratio": {"type": "number", "minimum": 0.1, "maximum": 0.8},
+        "tail_mode": {"enum": ["lean", "legacy"]},
+        "protect_first_n": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "protect_last_n": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "min_tail_user_messages": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "hygiene_hard_message_limit": {"type": "integer", "minimum": 1, "maximum": 100000}
+      }
+    }
+  },
+  "$comment": "After merging, min_tail_user_messages must not exceed protect_last_n; hygiene_hard_message_limit must exceed protect_first_n + protect_last_n + 1."
+}
