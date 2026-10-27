@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SOMA heartbeat delivery policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1, "default": 1},
+    "enabled": {"type": "boolean", "default": false},
+    "timezone": {"type": "string", "minLength": 1, "maxLength": 80, "default": "UTC"},
+    "quiet_start": {"$ref": "#/$defs/time", "default": "22:00"},
+    "quiet_end": {"$ref": "#/$defs/time", "default": "08:00"},
+    "minimum_interval_seconds": {"type": "integer", "minimum": 60, "maximum": 86400, "default": 3600},
+    "daily_limit": {"type": "integer", "minimum": 1, "maximum": 32, "default": 2},
+    "maximum_age_seconds": {"type": "integer", "minimum": 60, "maximum": 86400, "default": 7200},
+    "sources": {"$ref": "#/$defs/slugs", "default": []},
+    "focus": {"$ref": "#/$defs/slugs", "default": []}
+  },
+  "$defs": {
+    "time": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+    "slugs": {"type": "array", "maxItems": 16, "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"}}
+  },
+  "$comment": "timezone must resolve through IANA ZoneInfo; equal quiet times disable quiet hours. Sources are logical producer IDs, not access grants to external services."
+}

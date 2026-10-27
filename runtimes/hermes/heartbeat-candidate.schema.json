@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SOMA prepared heartbeat candidate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "owner", "source", "revision", "topic", "observed_at", "expires_at", "meaningful", "message"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "owner": {"type": "string", "pattern": "^telegram:[1-9][0-9]{0,19}$"},
+    "source": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"},
+    "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "topic": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"},
+    "observed_at": {"type": "integer", "minimum": 0, "maximum": 4102444800},
+    "expires_at": {"type": "integer", "minimum": 0, "maximum": 4102444800},
+    "meaningful": {"type": "boolean"},
+    "message": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"}
+  },
+  "$comment": "expires_at must exceed observed_at; message must contain non-whitespace text. Owner, source and meaningful-change evidence must be established by the authenticated caller, never inferred from an arbitrary model response."
+}

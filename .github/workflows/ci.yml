@@ -86,7 +86,7 @@ jobs:
           SOMA_RUNTIME_CI_SENTINEL: ${{ runner.temp }}/.soma-hermes-runtime-ci-owned
           RUNNER_TEMP: ${{ runner.temp }}
           SOMA_RUNTIME_INTEGRATION: "1"
-        run: node --test tests/runtime-integration.test.js tests/context-policy-native.test.js tests/continuity-native.test.js tests/progress-native.test.js
+        run: node --test tests/runtime-integration.test.js tests/context-policy-native.test.js tests/continuity-native.test.js tests/progress-native.test.js tests/heartbeat-gate-native.test.js
 
       - name: Remove synthetic workspaces
         if: always()

@@ -35,6 +35,8 @@ The opt-in [confirmed continuity component](docs/continuity.md) preserves bounde
 
 The opt-in [long-task progress component](docs/progress.md) sends one factual status notice for a slow Telegram DM request, suppressing notices during user-input waits and after completion, cancellation, or session replacement.
 
+The standalone [heartbeat delivery gate](docs/heartbeat-gate.md) checks prepared follow-ups against quiet hours, rate limits, pause/snooze/focus controls and durable replay protection. Scheduler and messaging integration remain to be implemented; the gate does not start background jobs.
+
 ## Self-hosted deployment
 
 SOMA includes a bounded Telegram gateway command, a systemd user-service template, and a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [deployment guide](docs/vps.md) to configure your own host, isolated paths, credentials, and service. SSH access requires an explicit `SOMA_VPS_SSH_HOST` value; keep actual connection details outside Git.
