@@ -2,7 +2,7 @@
 
 The SOMA heartbeat gate v1 separates private preparation from permission to notify. It checks an explicitly supplied candidate against quiet hours, freshness, pause/snooze/focus controls, source feedback, frequency limits and persistent replay protection. It runs offline with Python's standard library and the Python interpreter installed for SOMA's pinned Hermes revision. It adds no dependency and does not change the runtime submodule.
 
-This component is a callable delivery boundary and operator CLI. It does **not** yet register daily jobs, collect sources, run improvement reviews, parse natural-language controls, or connect a Telegram transport. Those integrations remain in [issue #2](https://github.com/bknstn/soma-ai/issues/2). Installing or updating SOMA does not enable automatic follow-ups. The existing [long-task progress component](progress.md) has its own live-turn policy.
+This component is a callable delivery boundary and operator CLI. The opt-in [scheduled assistant](assistant.md) integrates daily preparation, bounded improvement reviews, natural-language controls and native Telegram delivery through this gate. Installing or updating SOMA does not enable automatic follow-ups. The existing [long-task progress component](progress.md) has its own live-turn policy.
 
 ## Policy and isolation
 
@@ -90,4 +90,4 @@ Set `enabled: false` to stop new claims, or use `pause` for this owner. Neither 
 
 `npm test` runs synthetic contracts for strict schemas, clock rollback, repeated and missing DST hours, local-day boundaries, restart replay, concurrent claims, failed/ambiguous transport, stale candidates, source/owner isolation, controls and unsafe storage. CI repeats the suite with the pinned managed interpreter. Every fixture is disposable and removed after the test.
 
-For manual acceptance in a disposable runtime, prepare a fresh synthetic envelope, verify silence with `meaningful: false`, pause/snooze and quiet hours, then claim once outside quiet hours. Record an unknown result, restart the caller and replay the same revision: it must remain silent. Try a different owner, a stale envelope and two simultaneous claims. Confirm neither candidate text nor error detail exists in SQLite. Remove only the disposable test state afterward. A live scheduled follow-up acceptance scenario requires the future scheduler and authorized transport integration.
+For manual acceptance in a disposable runtime, prepare a fresh synthetic envelope, verify silence with `meaningful: false`, pause/snooze and quiet hours, then claim once outside quiet hours. Record an unknown result, restart the caller and replay the same revision: it must remain silent. Try a different owner, a stale envelope and two simultaneous claims. Confirm neither candidate text nor error detail exists in SQLite. Remove only the disposable test state afterward. [Assistant acceptance](assistant-acceptance.md) also covers the integrated scheduled follow-up.

@@ -11,7 +11,7 @@ import tempfile
 def install(source, home, yaml):
     source, home = Path(source), Path(home)
     component = source.name
-    if component not in {"soma-continuity", "soma-progress"}:
+    if component not in {"soma-continuity", "soma-progress", "soma-assistant"}:
         raise ValueError("Unknown conversation component")
     if not home.is_absolute() or home.is_symlink() or home.resolve() != home or not home.is_dir():
         raise ValueError("Invalid managed home")
@@ -35,14 +35,24 @@ def install(source, home, yaml):
         directory.mkdir(mode=0o700, exist_ok=True)
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError("Invalid plugin directory")
+    sources = {target / name: source / name for name in ("__init__.py", "plugin.yaml")}
+    if component == "soma-assistant":
+        sources.update({target / name: source / name for name in ("state.py", "boundaries.py")})
+        sources[target / "gate.py"] = Path(__file__).with_name("heartbeat-gate.py")
+        hook = home / "hooks" / component
+        for directory in (hook.parent, hook):
+            directory.mkdir(mode=0o700, exist_ok=True)
+            if directory.is_symlink() or not directory.is_dir():
+                raise ValueError("Invalid assistant hook directory")
+        sources.update({hook / name: source / name for name in ("HOOK.yaml", "handler.py")})
     assets = {}
-    for name in ("__init__.py", "plugin.yaml"):
-        raw = policy.read_regular(source / name, 65536)
+    for filename, origin in sources.items():
+        raw = policy.read_regular(origin, 65536)
         if raw is None:
             raise ValueError("Missing component asset")
         # Validate every target before replacing any asset.
-        policy.read_regular(target / name, 65536)
-        assets[target / name] = raw
+        policy.read_regular(filename, 65536)
+        assets[filename] = raw
     output = io.StringIO()
     yaml.dump(config, output)
     serialized = output.getvalue().encode("utf-8")

@@ -189,7 +189,7 @@ for skill_source in "$skill_source" "$action_skill_source"; do
   done
 done
 
-for component in soma-continuity soma-progress; do
+for component in soma-continuity soma-progress soma-assistant; do
 printf 'Installing opt-in SOMA component: %s…\n' "$component" >&2
 (cd "$source_dir" && "$hermes_python" -B -c '
 import hermes_bootstrap

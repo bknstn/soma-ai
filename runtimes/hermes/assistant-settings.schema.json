@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SOMA assistant component settings v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {"type": "boolean", "default": false},
+    "timezone": {"type": "string", "minLength": 1, "maxLength": 80, "default": "UTC"},
+    "greetings": {"$ref": "#/$defs/phrases", "default": []},
+    "continuations": {"$ref": "#/$defs/phrases", "default": ["continue", "продолжим", "продолжай"]},
+    "daily_time": {"$ref": "#/$defs/time", "default": "08:30"},
+    "review_interval_days": {"type": "integer", "minimum": 1, "maximum": 30, "default": 7},
+    "quiet_start": {"$ref": "#/$defs/time", "default": "22:00"},
+    "quiet_end": {"$ref": "#/$defs/time", "default": "08:00"},
+    "minimum_interval_seconds": {"type": "integer", "minimum": 60, "maximum": 86400, "default": 3600},
+    "daily_limit": {"type": "integer", "minimum": 1, "maximum": 32, "default": 2},
+    "maximum_age_seconds": {"type": "integer", "minimum": 60, "maximum": 86400, "default": 7200},
+    "sources": {"type": "array", "maxItems": 2, "uniqueItems": true, "items": {"enum": ["continuity", "operational"]}, "default": []}
+  },
+  "$defs": {
+    "time": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+    "phrases": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 80}}
+  },
+  "$comment": "Timezone must resolve through ZoneInfo; phrases must be nonblank and single-line. Operator enablement never replaces the native per-DM subscription confirmation."
+}

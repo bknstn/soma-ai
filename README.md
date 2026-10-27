@@ -35,7 +35,7 @@ The opt-in [confirmed continuity component](docs/continuity.md) preserves bounde
 
 The opt-in [long-task progress component](docs/progress.md) sends one factual status notice for a slow Telegram DM request, suppressing notices during user-input waits and after completion, cancellation, or session replacement.
 
-The standalone [heartbeat delivery gate](docs/heartbeat-gate.md) checks prepared follow-ups against quiet hours, rate limits, pause/snooze/focus controls and durable replay protection. Scheduler and messaging integration remain to be implemented; the gate does not start background jobs.
+The opt-in [scheduled assistant](docs/assistant.md) adds private daily preparation, bounded improvement proposals, conversational follow-up controls and idle-only new-day session boundaries. It uses the [heartbeat delivery gate](docs/heartbeat-gate.md) for quiet hours, rate limits, pause/snooze/focus and durable replay protection. Sending follow-ups requires explicit per-DM confirmation.
 
 ## Self-hosted deployment
 

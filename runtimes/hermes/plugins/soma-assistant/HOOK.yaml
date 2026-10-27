@@ -1,0 +1,4 @@
+name: soma-assistant
+description: Start the opt-in assistant's supervised timer after gateway startup.
+events:
+  - gateway:startup

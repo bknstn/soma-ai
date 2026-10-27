@@ -1,0 +1,26 @@
+# Assistant acceptance and issue #2 coverage
+
+All automated scenarios use synthetic identities, data and transports. CI never calls a live model, Telegram or a health account. The supported Hermes/Health OS revisions remain pinned. The following maps the requested capabilities to reviewable code and tests; manual scenarios are instructions for an operator using a disposable runtime.
+
+| Capability | Implementation and evidence |
+| --- | --- |
+| Validated context thresholds, protected messages and effective model budgets | `context-policy.py`; `context_policy_test.py`, `context_policy_native_test.py`; [context guide](context-management.md). |
+| Confirmed commitments survive compression/session changes | Independent bounded ledger, fresh per-turn hook; `continuity_test.py`, `continuity_native_test.py`. No inferred consent/completion. |
+| Natural day boundaries, continuation, queued work and DST | `soma-assistant/boundaries.py`; `assistant_test.py`, `assistant_native_test.py`. Native transaction guards test queued input and worker states; the original message is preserved. |
+| Scheduled preparation and useful follow-ups | `soma-assistant` supervised startup/tick; synthetic preparation, meaningful-change and restart tests in `assistant_test.py`; native startup/unload test. |
+| Quiet hours, frequency, pause/snooze/focus and dedup across restarts | `heartbeat-gate.py`; `heartbeat_gate_test.py`; real SQLite and concurrent claims, DST/midnight, stale/ambiguous handoff, replay and control tests. |
+| Bounded improvement proposals and explicit authorization boundary | Metadata-only counters and feedback; assistant review tests. No apply interface or account/code/service/dependency mutation exists. |
+| Truthful progress and lifecycle suppression | `soma-progress`; `progress_test.py`, `progress_native_test.py`; waits, stop, finalization, generation and unload coverage. |
+| Owner isolation and existing Health OS boundaries | Owner-keyed state and separate gate files; continuity/gate/assistant isolation tests; existing CLI/Health OS subprocess tests. No health source added. |
+| Reproducible install, upgrade, disable and rollback | Fixed asset list and preserved settings; native repeat-install byte/mtime check, supervised unload, unsupported-version checks; [component rollback steps](assistant.md#state-disable-and-rollback). |
+
+## Disposable manual scenarios
+
+1. **Long task:** enable progress in a disposable configured gateway and use a neutral task that genuinely lasts past the selected interval. Expect one factual notice, no percentage, and a final result. Repeat with a native approval/input wait, cancellation and `/new`; verify no later stale notice. The offline tests use controlled clocks rather than a live provider.
+2. **New day:** choose an IANA timezone and exact greeting/continuation phrases in private settings. Send a neutral message on day one, then a configured greeting on the next local day. Expect a new native session and the same confirmed synthetic commitment. A same-day greeting, continuation request, forwarded greeting, replay or unknown metadata must not reset. Repeat with a queued request, active/background work and a DST boundary; work must remain intact. Unit tests use explicit timestamps; do not change a production host clock.
+3. **Compression:** add and explicitly confirm a synthetic commitment; inspect its stable ID. Exercise the configured native compression threshold, then start a fresh session. Verify the next turn receives the current bounded ledger snapshot, including omission counts when full. Correct/cancel/complete only through explicit confirmation; silence cannot complete a task. Use offline budget preview where no model is configured.
+4. **Scheduled follow-up:** explicitly enable both components and the allowed `continuity` source, then confirm `/soma-assistant enable` in a synthetic DM. Add a synthetic commitment and set a disposable near-future daily preparation time. Expect one neutral actionable notice outside quiet hours; unchanged preparation must stay silent. Pause, snooze, focus away from commitments, mute the source and restart the gateway: each gate must hold. Resume and make a new confirmed ledger revision; only a fresh allowed result may notify. Replaying an ambiguous failed attempt must remain silent.
+5. **Improvement review:** supply explicit frequency feedback using a documented natural-language control, then invoke `/soma-assistant review`. Expect a concise proposal and approval-dependent next step, subject to the same delivery gate. Verify no code/config/dependency/service/permission change occurs. Repeat unchanged evidence after the review interval: no duplicate proposal.
+6. **Install/disable/rollback:** repeat setup and compare settings/state; explicitly disable the plugin and restart. No supervised timer or boundary/control hook may run. Reenable using the same state and verify no old notice is replayed. Disable before restoring an earlier code revision; preserve state and remove only obsolete code assets if necessary.
+
+Remove the entire disposable runtime and any task-created helpers after acceptance. Preserve real user state and private deployment configuration. Live manual checks are an operator acceptance workflow; the automated suite uses fake messaging, controlled clocks and fresh synthetic SQLite files.
