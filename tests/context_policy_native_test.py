@@ -46,6 +46,16 @@ class NativePolicyTest(unittest.TestCase):
 
             # This process is disposable; the audit hook covers import-time reads too.
             sys.addaudithook(no_private_state)
+            dependency_home = os.environ.get("SOMA_TEST_DEPENDENCY_HOME")
+            if dependency_home:
+                # PM's committed dependency generation is keyed by home as well as
+                # source revision. Activate only the explicit synthetic CI install,
+                # then replace every mutable root before importing runtime modules.
+                self.assertEqual(Path(dependency_home), Path(env["HERMES_RUNTIME_DIR"]).parent / "hermes-home")
+                with patch.dict(os.environ, {**env, "HERMES_HOME": dependency_home}, clear=True), \
+                        patch.object(socket.socket, "connect", deny_network), \
+                        patch.object(socket.socket, "connect_ex", deny_network), patch.object(socket, "getaddrinfo", deny_network):
+                    import hermes_bootstrap
             with patch.dict(os.environ, env, clear=True), patch.object(socket.socket, "connect", deny_network), \
                     patch.object(socket.socket, "connect_ex", deny_network), patch.object(socket, "getaddrinfo", deny_network):
                 import hermes_bootstrap  # noqa: F401

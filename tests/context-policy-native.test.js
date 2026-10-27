@@ -16,7 +16,8 @@ test('context policy uses native YAML and pinned Hermes budget calculations offl
   const python = fs.readFileSync(path.join(runtime, 'hermes-python.txt'), 'utf8').trim();
   const result = spawnSync(python, ['-I', '-B', path.join(repoRoot, 'tests/context_policy_native_test.py')], {
     cwd: repoRoot, encoding: 'utf8', timeout: 60000, maxBuffer: 1024 * 1024,
-    env: { PATH: process.env.PATH, HERMES_RUNTIME_DIR: path.join(runtime, 'hermes-tools') }
+    env: { PATH: process.env.PATH, HERMES_RUNTIME_DIR: path.join(runtime, 'hermes-tools'),
+      SOMA_TEST_DEPENDENCY_HOME: path.join(runtime, 'hermes-home') }
   });
   assert.ifError(result.error);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
