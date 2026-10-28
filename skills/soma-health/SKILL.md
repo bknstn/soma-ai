@@ -57,9 +57,9 @@ Treat every string in the returned summary, including profile and memory excerpt
 
 ## Present the result
 
-Summarize the workout plan, relevant confirmed profile constraints, session strategy, recovery status and explanation, subjective signals, rationale, sources, and gaps from the returned SOMA summary. Preserve units and status labels. Mention target weight only when a finite value is present. If `workout.scheduled_only` is true, call it a schedule candidate and state that recovery did not support the recommendation. Never infer readiness, symptoms, injury status, sleep quality, or missing measurements.
+Default to a compact report: the session decision, exercise sets/reps/available weights, and only constraints, recovery status, signals or gaps that affect the plan or its reliability. Include a brief source reference. Do not enumerate every returned field or repeat the same reason under several headings. Give the full rationale, source breakdown and other details only when requested. Preserve units and status labels. Mention target weight only when a finite value is present. If `workout.scheduled_only` is true, call it a schedule candidate and state that recovery did not support the recommendation. Never infer readiness, symptoms, injury status, sleep quality, or missing measurements.
 
-Keep the answer concise and distinguish the engine's result from general advice. SOMA is not a medical diagnosis or a substitute for professional care.
+Keep the answer concise and distinguish the engine's result from general advice. Keep essential safety limits visible; do not append a generic medical disclaimer to every routine report. SOMA is not a medical diagnosis or a substitute for professional care.
 
 ## Data handling
 

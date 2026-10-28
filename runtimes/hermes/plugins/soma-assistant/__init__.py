@@ -321,8 +321,8 @@ class Assistant:
                 if snapshot is not None:
                     fingerprint = digest(snapshot)
                     if snapshot and fingerprint != current.get("continuity_digest"):
-                        message = (f"У нас осталось открытых задач: {len(snapshot)}. Можем вместе посмотреть, что лучше сделать дальше."
-                                   if russian else f"There are {len(snapshot)} confirmed open commitments. We can review them together and choose the next step.")
+                        message = (f"Открытых задач: {len(snapshot)}."
+                                   if russian else f"Open commitments: {len(snapshot)}.")
                         candidate("continuity", fingerprint, message, "commitments")
                     elif not snapshot:
                         pending.pop("continuity", None)
@@ -331,14 +331,14 @@ class Assistant:
             if review and "operational" in config["sources"]:
                 evidence = {key: current.get(key, 0) for key in ("errors", "slow", "feedback")}
                 fingerprint = digest(evidence)
-                proposal = (("Ты говорил, что напоминаний слишком много. Можем сократить их до одного в день — как тебе?" if russian else
-                             "You mentioned that reminders are too frequent. Would one update a day work better?")
+                proposal = (("Напоминаний слишком много. Сократить до одного в день?" if russian else
+                             "Reminders are too frequent. Would one update a day work better?")
                             if evidence["feedback"] else
-                            ("Несколько раз мне не удалось выполнить фоновую проверку. Могу разобраться в причине — займёмся этим?" if russian else
-                             "I couldn't complete several background checks. Would you like me to look into the cause?")
+                            ("Не удалось выполнить несколько фоновых проверок. Выяснить причину?" if russian else
+                             "Several background checks failed. Investigate the cause?")
                             if evidence["errors"] >= 3 else
-                            ("Некоторые задачи занимали больше десяти минут. Можем попробовать разбивать такую работу на небольшие шаги." if russian else
-                             "Some tasks took over ten minutes. We could try breaking that work into smaller steps.")
+                            ("Некоторые задачи заняли больше десяти минут. Разбивать их на шаги?" if russian else
+                             "Some tasks took over ten minutes. Break them into steps?")
                             if evidence["slow"] >= 3 else "")
                 if proposal and fingerprint != current.get("review_digest"):
                     candidate("operational", fingerprint, proposal, "improvements")

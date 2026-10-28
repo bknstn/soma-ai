@@ -25,6 +25,8 @@ class PersonaTest(unittest.TestCase):
         self.template = self.source.read_text()
         start, end = persona.policy_span(self.template)
         self.policy = self.template[start:end]
+        start, end = persona.policy_span(self.template, persona.STYLE_START, persona.STYLE_END)
+        self.style = self.template[start:end]
         self.yaml = SimpleNamespace(load=json.loads, dump=lambda value, stream: json.dump(value, stream))
 
     def cleanup(self):
@@ -50,22 +52,48 @@ class PersonaTest(unittest.TestCase):
         installed = self.target.read_bytes()
         self.assertTrue(installed.startswith(custom))
         self.assertIn(self.policy.encode(), installed)
+        self.assertIn(self.style.encode(), installed)
         self.install()
         self.assertEqual(self.target.read_bytes(), installed)
 
     def test_managed_block_refresh_preserves_surrounding_customizations(self):
         before, after = "# Synthetic persona\n\n", "\n\nCustom operator instructions.\n"
-        self.target.write_text(before + persona.START + "\nOutdated policy.\n" + persona.END + after)
+        self.target.write_text(before + persona.START + "\nOutdated policy.\n" + persona.END +
+                               after + persona.STYLE_START + "\nOutdated style.\n" + persona.STYLE_END)
         self.install()
-        self.assertEqual(self.target.read_text(), before + self.policy + after)
+        self.assertEqual(self.target.read_text(), before + self.policy + after + self.style)
+
+    def test_language_only_upgrade_adds_style_and_preserves_language_and_custom_text(self):
+        original = "# Synthetic persona\n" + self.policy + "\nCustom operator instructions.\n"
+        self.target.write_text(original)
+        self.install()
+        installed = self.target.read_text()
+        self.assertTrue(installed.startswith(original))
+        self.assertEqual(installed.count(persona.STYLE_START), 1)
+        self.assertIn(self.style, installed)
+        with patch.object(persona.os, "replace") as replace:
+            self.install()
+        replace.assert_not_called()
 
     def test_malformed_blocks_fail_without_modifying_persona(self):
-        for content in (persona.START, persona.END, persona.END + persona.START,
-                        persona.START + persona.END + persona.START + persona.END):
+        invalid = []
+        for start, end in persona.POLICY_BLOCKS:
+            invalid.extend((start, end, end + start, start + end + start + end))
+        invalid.extend((persona.START + persona.STYLE_START + persona.STYLE_END + persona.END,
+                        persona.START + persona.STYLE_START + persona.END + persona.STYLE_END))
+        for content in invalid:
             self.target.write_text(content)
             with self.assertRaises(ValueError):
                 self.install()
             self.assertEqual(self.target.read_text(), content)
+
+    def test_missing_template_policy_fails_without_modifying_existing_persona(self):
+        source = self.home / "synthetic-template.md"
+        source.write_text(self.policy)
+        self.target.write_text("Synthetic existing persona")
+        with self.assertRaises(ValueError):
+            persona.install(source, self.home)
+        self.assertEqual(self.target.read_text(), "Synthetic existing persona")
 
     def test_symlink_target_and_home_are_rejected(self):
         outside = self.home / "synthetic-original.md"

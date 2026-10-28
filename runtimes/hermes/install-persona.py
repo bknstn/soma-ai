@@ -1,4 +1,4 @@
-"""Install SOMA's reply-language policy and automatic speech-language selection."""
+"""Install SOMA's reply policies and automatic speech-language selection."""
 
 import importlib.util
 import io
@@ -10,18 +10,29 @@ import tempfile
 
 START = "<!-- soma:response-language:start -->"
 END = "<!-- soma:response-language:end -->"
+STYLE_START = "<!-- soma:response-style:start -->"
+STYLE_END = "<!-- soma:response-style:end -->"
+POLICY_BLOCKS = ((START, END), (STYLE_START, STYLE_END))
 STT_PROVIDERS = ("local", "groq", "openai", "mistral", "xai", "elevenlabs", "deepinfra")
 
 
-def policy_span(text):
-    if START not in text and END not in text:
+def policy_span(text, start_marker=START, end_marker=END):
+    if start_marker not in text and end_marker not in text:
         return None
-    if text.count(START) != 1 or text.count(END) != 1:
-        raise ValueError("Response-language policy markers must form one complete block")
-    start, end = text.index(START), text.index(END)
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise ValueError("Response policy markers must form one complete block")
+    start, end = text.index(start_marker), text.index(end_marker)
     if end < start:
-        raise ValueError("Response-language policy markers are out of order")
-    return start, end + len(END)
+        raise ValueError("Response policy markers are out of order")
+    return start, end + len(end_marker)
+
+
+def policy_spans(text):
+    spans = [policy_span(text, *markers) for markers in POLICY_BLOCKS]
+    present = sorted(span for span in spans if span is not None)
+    if any(left[1] > right[0] for left, right in zip(present, present[1:])):
+        raise ValueError("Response policy blocks must not overlap")
+    return spans
 
 
 def install(source, home):
@@ -33,10 +44,10 @@ def install(source, home):
         if filename.is_symlink() or (filename.exists() and not filename.is_file()):
             raise ValueError("Persona files must be regular files")
     template = source.read_text(encoding="utf-8")
-    span = policy_span(template)
-    if span is None:
-        raise ValueError("SOMA persona template is missing its response-language policy")
-    policy = template[span[0]:span[1]]
+    spans = policy_spans(template)
+    if any(span is None for span in spans):
+        raise ValueError("SOMA persona template is missing a response policy")
+    policies = [template[start:end] for start, end in spans]
     old = None
     if target.exists():
         with target.open(encoding="utf-8", newline="") as stream:
@@ -44,11 +55,14 @@ def install(source, home):
     if old is None:
         updated = template
     else:
-        span = policy_span(old)
-        if span is None:
-            updated = old + ("\n\n" if not old.endswith("\n\n") else "") + policy + "\n"
-        else:
-            updated = old[:span[0]] + policy + old[span[1]:]
+        policy_spans(old)  # Validate all blocks before changing any text.
+        updated = old
+        for markers, policy in zip(POLICY_BLOCKS, policies):
+            span = policy_span(updated, *markers)
+            if span is None:
+                updated += ("\n\n" if not updated.endswith("\n\n") else "") + policy + "\n"
+            else:
+                updated = updated[:span[0]] + policy + updated[span[1]:]
     if updated == old:
         return
     temporary = None
@@ -118,4 +132,4 @@ if __name__ == "__main__":
         configure_transcription(sys.argv[2], roundtrip_yaml())
         install(sys.argv[1], sys.argv[2])
     except Exception:
-        raise SystemExit("Language policy installation failed; inspect private paths and configuration.") from None
+        raise SystemExit("Response policy installation failed; inspect private paths and configuration.") from None

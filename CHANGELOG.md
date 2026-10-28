@@ -5,6 +5,22 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-28
+
+### Fixed
+
+- Made concise, outcome-first replies the default for conversation, voice, reports
+  and failures; detailed explanations are given on request. Health reports retain
+  essential constraints, units, sources and uncertainty.
+- Added a managed response-style block that setup installs and refreshes in existing
+  personas without replacing operator text. Shortened default progress and scheduled
+  follow-up messages; existing custom progress messages remain unchanged.
+
+### Upgrade
+
+- Rerun managed runtime setup with the explicit `SOMA_RUNTIME_HOME`, then restart chat
+  or the gateway to load the style policy and updated plugins.
+
 ## [0.2.0] - 2026-10-28
 
 ### Fixed

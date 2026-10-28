@@ -6,6 +6,6 @@
   "properties": {
     "enabled": {"type": "boolean", "default": false},
     "interval_seconds": {"type": "integer", "minimum": 15, "maximum": 3600, "default": 60},
-    "message": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[^\\u0000-\\u001f\\u007f]+$", "default": "The current request is still running. I will send the result when it is ready."}
+    "message": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[^\\u0000-\\u001f\\u007f]+$", "default": "Still working on your request."}
   }
 }

@@ -29,7 +29,7 @@ The [settings schema](../runtimes/hermes/progress-settings.schema.json) describe
 | --- | --- |
 | `enabled` | Boolean, default `false`; strings and numbers do not enable the feature. |
 | `interval_seconds` | Integer from 15 to 3600, default 60. Measured from the native user-turn start hook using a monotonic clock. |
-| `message` | Optional single line of 1–240 characters. Default: "The current request is still running. I will send the result when it is ready." Localize this factual notice if needed. |
+| `message` | Optional single line of 1–240 characters. Default: "Still working on your request." Localize this factual notice if needed. Existing custom messages are preserved. |
 
 Invalid values disable notices. Keep a customized message factual: the component knows that the request is still running, not how much is complete. Configuration changes require a restart to reload native plugin settings; interval/text selection applies when a new turn starts.
 
