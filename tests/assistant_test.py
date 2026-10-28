@@ -47,7 +47,8 @@ def event(message="1", text="Synthetic request", user="1001"):
     source.to_dict = lambda: {"platform": "telegram", "chat_type": "dm", "chat_id": user, "user_id": user, "message_id": message}
     raw = NS(from_user=NS(id=int(user), is_bot=False), chat=NS(id=int(user), type="private"), message_id=int(message))
     return NS(source=source, raw_message=raw, message_id=message, text=text, internal=False, allow_gateway_control=True,
-              inherit_channel_pin=False, edit_revision="", metadata={}, media_urls=[], message_type=NS(value="text"))
+              inherit_channel_pin=False, edit_revision="", metadata={}, media_urls=[],
+              message_type=NS(value="command" if text.startswith("/") else "text"))
 
 
 class AssistantTest(unittest.TestCase):
@@ -111,8 +112,14 @@ class AssistantTest(unittest.TestCase):
                        lambda e: setattr(e.source, "is_bot", True), lambda e: setattr(e.source, "chat_type", "group"),
                        lambda e: setattr(e, "metadata", {"synthetic": True}), lambda e: setattr(e, "edit_revision", "1"),
                        lambda e: setattr(e, "_hermes_startup_restore_replay", True)):
-            evt = event()
-            modify(evt)
+            for text in ("Synthetic request", "/soma_assistant enable"):
+                evt = event(text=text)
+                modify(evt)
+                self.service.ingress(event=evt, gateway=self.runner)
+                self.assertFalse(self.service.receipts)
+        for kind in ("photo", "voice", "document", "location"):
+            evt = event(text="/soma_assistant enable")
+            evt.message_type.value = kind
             self.service.ingress(event=evt, gateway=self.runner)
             self.assertFalse(self.service.receipts)
         self.runner._is_user_authorized_for_source = lambda source: False

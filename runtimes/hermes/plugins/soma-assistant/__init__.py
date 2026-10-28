@@ -64,7 +64,7 @@ def direct(event, runner):
                  str(source.chat_id) == str(source.user_id) and not source.is_bot and not source.thread_id and
                  not source.delivered_via_upstream_relay and event.internal is False and event.allow_gateway_control is True and
                  not event.inherit_channel_pin and not event.edit_revision and not event.metadata and not event.media_urls and
-                 event.message_type.value == "text" and isinstance(event.text, str) and len(event.text) <= 16000 and
+                 event.message_type.value in {"text", "command"} and isinstance(event.text, str) and len(event.text) <= 16000 and
                  not getattr(event, "_hermes_startup_restore_replay", False) and raw is not None and
                  not any(getattr(raw, key, None) for key in ("forward_origin", "forward_date", "via_bot", "edit_date")) and
                  raw.from_user.is_bot is False and str(raw.from_user.id) == str(source.user_id) == str(raw.chat.id) and

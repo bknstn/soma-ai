@@ -55,9 +55,10 @@ class NativeAssistantTest(unittest.TestCase):
         from hermes_cli.plugins_manifest import parse_manifest_file
         from hermes_cli.plugin_command_dispatch import invoke_plugin_command
         from hermes_cli.plugin_choices import bind_asker
-        from gateway.config import GatewayConfig, Platform
+        from gateway.config import GatewayConfig, Platform, PlatformConfig
         from gateway.session import SessionStore, SessionSource
-        from gateway.platforms.event import MessageEvent
+        from gateway.platforms.event import MessageEvent, MessageType
+        from plugins.platforms.telegram.adapter import TelegramAdapter
         from gateway.session_state import SessionState
         from gateway.hooks import _load_hook_dir
         from hermes_state import SessionDB
@@ -122,8 +123,17 @@ class NativeAssistantTest(unittest.TestCase):
             recovered._loaded = False
             self.assertEqual(recovered.get_or_create_session(source).session_id, fresh.session_id)
 
-            raw = NS(from_user=NS(id=1001, is_bot=False), chat=NS(id=1001, type="private"), message_id=1)
-            event = MessageEvent(text="/soma-assistant enable", source=source, message_id="1", raw_message=raw)
+            # Telegram's real command handler uses COMMAND, unlike ordinary text.
+            # Build its event through the pinned adapter rather than handcrafting TEXT.
+            raw = NS(from_user=NS(id=1001, is_bot=False, full_name="Synthetic user"),
+                     chat=NS(id=1001, type="private", title=None, full_name="Synthetic user"),
+                     message_id=1, text="/soma_assistant enable", entities=[], message_thread_id=None,
+                     reply_to_message=None, forum_topic_created=None, date=None)
+            adapter = TelegramAdapter(PlatformConfig(enabled=True, extra={}))
+            event = adapter._build_message_event(raw, MessageType.COMMAND)
+            source = event.source
+            self.assertEqual(event.get_command(), "soma_assistant")
+            self.assertEqual(event.message_type, MessageType.COMMAND)
             runner = NS(_running=True, _draining=False, config=NS(multiplex_profiles=False), session_store=store,
                         _is_user_authorized_for_source=lambda source: True, _session_key_for_source=lambda source: key,
                         _peek_session_state=lambda key: SessionState(), _delivery_adapter_for=lambda source: NS(_pending_messages={}))
