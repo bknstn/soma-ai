@@ -37,7 +37,7 @@ def install(source, home, yaml):
             raise ValueError("Invalid plugin directory")
     sources = {target / name: source / name for name in ("__init__.py", "plugin.yaml")}
     if component == "soma-assistant":
-        sources.update({target / name: source / name for name in ("state.py", "boundaries.py")})
+        sources.update({target / name: source / name for name in ("state.py", "boundaries.py", "conversation.py")})
         sources[target / "gate.py"] = Path(__file__).with_name("heartbeat-gate.py")
         hook = home / "hooks" / component
         for directory in (hook.parent, hook):

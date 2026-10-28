@@ -20,9 +20,11 @@ plugins:
 
 The [settings schema](../runtimes/hermes/continuity-settings.schema.json) describes this plugin's `settings` object. The only setting is a boolean `enabled`, default `false`; truthy strings do not enable it. Remove `soma-continuity` from `plugins.disabled` if it was explicitly disabled. Restart the managed gateway using your authorized deployment procedure to load new plugin code. Do not change the pinned submodule or copy another Hermes home's state.
 
-## Explicit commands and consent
+## Conversation and consent
 
-Use `/soma-continuity` in an authorized Telegram DM. Telegram may display the command with an underscore, `/soma_continuity`; the pinned dispatcher normalizes it. SOMA does not expose a model-callable writer or infer entries from transcripts.
+With the [conversational assistant](assistant.md) enabled, use ordinary text or voice: ask SOMA to remember an agreement, correct a preference, review unfinished tasks, mark one completed, or forget it. The model calls the internal continuity tool and resolves identifiers itself. Every change first produces an exact proposal for the user's review, then requires a subsequent fresh reply affirming it. No particular phrase or button is required. Proposals are bounded, held only in memory for ten minutes, and lost on restart. Changed revisions reject stale confirmations. SOMA does not automatically infer or extract ledger entries from history. Detailed health facts still belong in Health OS.
+
+`/soma-continuity` remains an optional operator/debug interface in an authorized Telegram DM. Telegram may display it with an underscore, `/soma_continuity`; the pinned dispatcher normalizes it:
 
 | Command arguments | Result |
 | --- | --- |
@@ -36,7 +38,7 @@ Use `/soma-continuity` in an authorized Telegram DM. Telegram may display the co
 | `cancel ENTRY_ID` | Mark an entry cancelled. |
 | `forget ENTRY_ID` | Remove the entry's text and provenance from this ledger. |
 
-Every mutation displays its exact proposal in Hermes' native confirmation picker. Only the command user's explicit **Confirm** response permits a write. Cancel, timeout, unavailable UI, other text, and silence leave entries unchanged. Detailed health facts, measurements, records, and documents belong in Health OS; use `health_reference` for a bounded `health-os:` pointer. Free-text agreements and preferences are user-selected, so the operator and user must keep health facts out of them too. This component does not classify or ingest personal health records.
+For this command interface, every mutation uses Hermes' native confirmation picker. Only the command user's explicit **Confirm** response permits a write. Cancel, timeout, unavailable UI, other text, and silence leave entries unchanged. Detailed health facts, measurements, records, and documents belong in Health OS; use `health_reference` for a bounded `health-os:` pointer. Free-text agreements and preferences are user-selected, so the operator and user must keep health facts out of them too. This component does not classify or ingest personal health records.
 
 Existing commands remain available when no conversation session has been created yet, provided the native DM route and message ID exist. Missing message provenance refuses writes. Corrections check the exact revision shown in the confirmation; a concurrent change requires reviewing a fresh proposal.
 

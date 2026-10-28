@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from .state import State, consume
 from .boundaries import greeting, rotate
+from .conversation import Conversation, ASSISTANT_SCHEMA, CONTINUITY_SCHEMA
 
 _gate_path = Path(__file__).with_name("gate.py")
 if not _gate_path.exists():
@@ -55,16 +56,19 @@ def settings(ctx):
 
 
 def direct(event, runner):
-    """Live native text DM with original Telegram provenance, before FIFO loses raw objects."""
+    """Live text/command or voice DM, before native FIFO loses Telegram provenance."""
     try:
         source, raw = event.source, event.raw_message
+        kind = event.message_type.value
+        text_input = kind in {"text", "command"} and not event.media_urls
+        voice_input = kind == "voice" and getattr(raw, "voice", None) is not None and len(event.media_urls) == 1
         owner = "telegram:" + str(source.user_id)
         delivery.owner_id(owner)
         valid = (source.platform.value == "telegram" and source.chat_type == "dm" and
                  str(source.chat_id) == str(source.user_id) and not source.is_bot and not source.thread_id and
                  not source.delivered_via_upstream_relay and event.internal is False and event.allow_gateway_control is True and
-                 not event.inherit_channel_pin and not event.edit_revision and not event.metadata and not event.media_urls and
-                 event.message_type.value in {"text", "command"} and isinstance(event.text, str) and len(event.text) <= 16000 and
+                 not event.inherit_channel_pin and not event.edit_revision and not event.metadata and
+                 (text_input or voice_input) and isinstance(event.text, str) and len(event.text) <= 16000 and
                  not getattr(event, "_hermes_startup_restore_replay", False) and raw is not None and
                  not any(getattr(raw, key, None) for key in ("forward_origin", "forward_date", "via_bot", "edit_date")) and
                  raw.from_user.is_bot is False and str(raw.from_user.id) == str(source.user_id) == str(raw.chat.id) and
@@ -107,9 +111,15 @@ class Assistant:
         self.turns = {}
         self.task = None
         self.closed = False
+        self.conversation = Conversation(self, settings)
 
     def gate(self, owner, config):
         policy = {key: config[key] for key in delivery.DEFAULTS if key in config}
+        preferences = self.state.get(owner)
+        if delivery.integer(preferences.get("interval"), 60, 86400):
+            policy["minimum_interval_seconds"] = max(config["minimum_interval_seconds"], preferences["interval"])
+        if delivery.integer(preferences.get("daily_limit"), 1, 32):
+            policy["daily_limit"] = min(config["daily_limit"], preferences["daily_limit"])
         return delivery.Gate(self.home.parent / "soma-heartbeat", owner, policy)
 
     def start(self, runner):
@@ -138,7 +148,7 @@ class Assistant:
         key = gateway._session_key_for_source(event.source)
         identity = (key, str(event.message_id), owner)
         now = time.monotonic()
-        bounded = event.text if len(event.text) <= 160 else ""
+        bounded = event.text if event.message_type.value != "voice" and len(event.text) <= 160 else ""
         if natural(bounded) or greeting(bounded, config["greetings"], config["continuations"]):
             # Native /queue marker: preserve an active task before the gateway's
             # default plaintext interrupt path. Auth/prompt/admission gates still
@@ -153,7 +163,8 @@ class Assistant:
                 return
             if len(self.receipts) >= 256:
                 self.receipts.pop(next(iter(self.receipts)))
-            self.receipts[identity] = (now, gateway, event.source, digest(event.text), bounded)
+            self.receipts[identity] = (now, gateway, event.source, digest(event.text), bounded,
+                                      event.message_type.value == "voice")
 
     def take(self, key, message, owner):
         with self.lock:
@@ -170,7 +181,7 @@ class Assistant:
         receipt = self.take(session_key, message_id, owner)
         if receipt is None or receipt[3] != digest(text):
             return
-        _, runner, original, _, bounded = receipt
+        _, runner, original, _, bounded = receipt[:5]
         try:
             # Match all routing identities after native auth; never trust post-hook text alone.
             if (str(source.get("chat_id")) != owner[9:] or runner._is_user_authorized_for_source(original) is not True or
@@ -185,15 +196,14 @@ class Assistant:
                 lambda value: consume(value, int(message_id), sid, day, route, session_key))
             if old is None:
                 return
-            command = natural(bounded)
-            if command:
-                reply = await asyncio.to_thread(self.apply_control, owner, command, config, now)
-                return {"action": "handled", "reply": reply}
             if (entry is not None and old.get("session") == sid and old.get("day", day) < day and
                     greeting(bounded, config["greetings"], config["continuations"])):
                 fresh = await rotate(runner, session_key, sid)
                 if fresh is not None:
                     await asyncio.to_thread(self.state.update, owner, lambda value: value.update(session=fresh.session_id))
+            # The ordinary conversation model interprets intent; no phrase consumes
+            # a user message or selects a mutation before inference.
+            self.conversation.admit(session_key, message_id, owner, receipt)
         except Exception:
             # Unknown metadata never resets or consumes an ordinary user request.
             return
@@ -233,7 +243,7 @@ class Assistant:
             receipt = self.take(session_key, message, owner)
             if receipt is None:
                 return "A fresh direct user command is required."
-            _, runner, original, _, _ = receipt
+            _, runner, original, _, _ = receipt[:5]
             if runner._is_user_authorized_for_source(original) is not True:
                 return "Use an authorized Telegram DM."
             route = {"platform": "telegram", "chat_type": "dm", "chat_id": owner[9:], "user_id": owner[9:]}
@@ -242,6 +252,8 @@ class Assistant:
             old = self.state.update(owner, lambda value: consume(value, int(message), session_id, day, route, session_key))
             if old is None:
                 return "Old or replayed command; send a fresh request."
+            with self.lock:
+                self.conversation.pending.pop(owner, None)
             action = raw_args.strip() or "status"
             if action == "enable":
                 if not config["sources"]:
@@ -291,6 +303,7 @@ class Assistant:
         value = self.state.get(owner)
         if value.get("subscribed") is not True:
             return
+        russian = value.get("language") == "ru"
         daily = (force == "check" or (value.get("prepared_day") != day and local.hour * 60 + local.minute >= delivery.minute(config["daily_time"])))
         review = force == "review" or now - value.get("review_at", now) >= config["review_interval_days"] * 86400
         snapshot = self.continuity(owner) if daily and "continuity" in config["sources"] else None
@@ -308,8 +321,9 @@ class Assistant:
                 if snapshot is not None:
                     fingerprint = digest(snapshot)
                     if snapshot and fingerprint != current.get("continuity_digest"):
-                        candidate("continuity", fingerprint, f"There are {len(snapshot)} explicitly confirmed open commitments. "
-                                  "Use /soma-continuity list to review them and choose the next step. No task was marked complete.", "commitments")
+                        message = (f"У нас осталось открытых задач: {len(snapshot)}. Можем вместе посмотреть, что лучше сделать дальше."
+                                   if russian else f"There are {len(snapshot)} confirmed open commitments. We can review them together and choose the next step.")
+                        candidate("continuity", fingerprint, message, "commitments")
                     elif not snapshot:
                         pending.pop("continuity", None)
                     current["continuity_digest"] = fingerprint
@@ -317,14 +331,17 @@ class Assistant:
             if review and "operational" in config["sources"]:
                 evidence = {key: current.get(key, 0) for key in ("errors", "slow", "feedback")}
                 fingerprint = digest(evidence)
-                proposal = ("Feedback indicates follow-ups are too frequent. Proposal: lower the daily limit. Next step: review and explicitly approve a configuration change."
+                proposal = (("Ты говорил, что напоминаний слишком много. Можем сократить их до одного в день — как тебе?" if russian else
+                             "You mentioned that reminders are too frequent. Would one update a day work better?")
                             if evidence["feedback"] else
-                            "Several follow-up checks or deliveries were unavailable. Proposal: inspect bounded runtime diagnostics. Next step: explicitly approve an operator review."
+                            ("Несколько раз мне не удалось выполнить фоновую проверку. Могу разобраться в причине — займёмся этим?" if russian else
+                             "I couldn't complete several background checks. Would you like me to look into the cause?")
                             if evidence["errors"] >= 3 else
-                            "Several tasks ran longer than ten minutes. Proposal: split future work into smaller steps. Next step: explicitly approve a workflow change."
+                            ("Некоторые задачи занимали больше десяти минут. Можем попробовать разбивать такую работу на небольшие шаги." if russian else
+                             "Some tasks took over ten minutes. We could try breaking that work into smaller steps.")
                             if evidence["slow"] >= 3 else "")
                 if proposal and fingerprint != current.get("review_digest"):
-                    candidate("operational", fingerprint, proposal + " No code, dependencies, services or permissions were changed.", "improvements")
+                    candidate("operational", fingerprint, proposal, "improvements")
                 current.update(review_at=now, review_digest=fingerprint)
         self.state.update(owner, change)
 
@@ -482,6 +499,7 @@ class Assistant:
             self.closed = True
             self.receipts.clear()
             self.turns.clear()
+            self.conversation.close()
 
 
 def register(ctx):
@@ -490,7 +508,13 @@ def register(ctx):
     ctx.register_hook("pre_gateway_dispatch", assistant.ingress)
     ctx.register_hook("post_gateway_admission", assistant.admitted)
     ctx.register_hook("pre_llm_call", assistant.turn_start)
+    ctx.register_hook("pre_llm_call", assistant.conversation.context)
     ctx.register_hook("post_llm_call", assistant.turn_end)
     ctx.register_hook("on_session_reset", assistant.reset)
     ctx.register_command("soma-assistant", assistant.command, description="Control opt-in preparation and follow-ups", args_hint="<action>")
+    for name, schema, surface in (("soma_assistant", ASSISTANT_SCHEMA, "assistant"),
+                                  ("soma_continuity", CONTINUITY_SCHEMA, "continuity")):
+        ctx.register_tool(name=name, toolset="soma", schema=schema,
+            handler=lambda args, _surface=surface, **_kwargs: assistant.conversation.call(_surface, args),
+            check_fn=lambda: settings(ctx) is not None)
     ctx.on_unload(assistant.close)

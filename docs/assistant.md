@@ -1,6 +1,6 @@
 # Scheduled assistant and natural session boundaries
 
-The opt-in `soma-assistant` v1 component completes the integration of [context management](context-management.md), [confirmed continuity](continuity.md), [long-task progress](progress.md) and the [heartbeat delivery gate](heartbeat-gate.md). It supports the managed Telegram DM gateway and the Hermes revision in `runtimes/hermes/manifest.json`. Other channels and multiplexed profiles fail closed. There are no new dependencies, provider requests, account connections or upstream upgrades.
+The opt-in `soma-assistant` component integrates [context management](context-management.md), [confirmed continuity](continuity.md), [long-task progress](progress.md) and the [heartbeat delivery gate](heartbeat-gate.md). Its conversational interface uses the existing model to interpret ordinary requests, including voice transcripts; it makes no separate intent-classification call. It supports the managed Telegram DM gateway and the Hermes revision in `runtimes/hermes/manifest.json`. Other channels and multiplexed profiles fail closed. There are no new dependencies, account connections or upstream upgrades.
 
 ## Install and configure
 
@@ -35,7 +35,13 @@ The [settings schema](../runtimes/hermes/assistant-settings.schema.json) defines
 
 ## Explicit subscription and conversational controls
 
-In an authorized direct conversation, send `/soma-assistant enable` (Telegram also accepts `/soma_assistant enable`). The native confirmation picker names the configured sources. Only **Confirm** creates a subscription. Cancel, timeout, silence and ordinary text do not enable it. Each DM's settings and delivery history are separate. An operator enabling the plugin alone does not subscribe users or authorize access to additional sources.
+In an authorized direct conversation, ask in your own words to enable reminders, pause them, change their frequency, focus on open tasks, or review saved agreements. Text and voice use the same conversation. There is no required wording, command, identifier or button. The existing model interprets the request and calls `soma_assistant` or `soma_continuity`; these tool names and their structured arguments are internal.
+
+Enabling follow-ups first returns a proposal describing the configured sources. SOMA explains it in the user's language and asks a short ordinary question. Only a subsequent fresh user reply affirming that proposal allows confirmation. The original turn cannot confirm itself. Negation, unrelated replies and silence never trigger an automatic parser; they continue through the model. Subscription confirmation and continuity changes require separate turns; ordinary notification controls apply directly to the user's explicit request. An operator enabling the plugin alone does not subscribe users or authorize additional sources.
+
+The model handles meaning, including paraphrases and context-dependent replies. This semantic judgment is part of the tool-use trust boundary; it is not a deterministic guarantee about every possible utterance. Prompts explicitly exclude quoted text, retrieved documents, earlier instructions, uncertain voice transcripts and model-generated agreement as authority. The backend independently enforces real Telegram provenance, current authorization, native task-local route/session/message identity, freshness, source bounds, revisions and confirmation on a later message. Cron, subagent, forwarded, edited, bot, group and unproven turns cannot use these tools. Native STT failure/empty/disabled markers revoke voice authorization; the plugin does not transcribe audio or call another provider itself.
+
+Frequency preferences can lower the per-DM daily limit or increase the minimum interval within operator limits, and survive restart. Tool results report the actual bounded values. English and Russian follow-up text follows the language selected by the conversational tool; neither notification text nor the conversational prompt asks the user to run commands or exposes configuration details. Existing slash commands remain an optional operator/debug interface:
 
 | Command arguments | Result |
 | --- | --- |
@@ -50,7 +56,7 @@ In an authorized direct conversation, send `/soma-assistant enable` (Telegram al
 | `mute continuity`, `mute operational` | Persist negative source feedback by silencing the selected configured source. |
 | `unmute continuity`, `unmute operational` | Restore eligibility for that source. |
 
-Controls also recognize bounded, explicit natural-language requests. Supported examples include:
+Examples of requests the model can interpret include:
 
 - `поставь уведомления на паузу` / `pause follow-ups`
 - `возобнови уведомления` / `resume follow-ups`
@@ -61,15 +67,15 @@ Controls also recognize bounded, explicit natural-language requests. Supported e
 - `верни уведомления о задачах` / `верни уведомления об улучшениях`
 - `уведомления слишком частые` / `follow-ups are too frequent`
 
-These are complete requests, with optional trailing punctuation, not substring triggers. Quoted requests, negations, forwarded messages, bots, groups, edits, media, internal/synthetic inputs and unproven routing metadata do not change controls. Ambiguous wording proceeds as ordinary conversation; use the slash command to be precise. Plain `yes` never subscribes a user. Native authorization runs before a natural control can consume a message. Persisted message-ID watermarks also reject old or reordered control replays; resend an older command as a fresh message when necessary.
+These are examples, not a grammar or an allowlist. No natural-language phrase consumes an input before inference. A small legacy phrase recognizer only preserves queued delivery for familiar controls while a task is busy; arbitrary paraphrases continue through the runtime's normal busy-input policy. Native authorization and persistent message-ID watermarks reject old or reordered requests. An affirmative reply can confirm only one unexpired proposal in this same user's current session. Pending proposals expire after ten minutes, disappear on restart/unload, and are never automatically retried. If uncertain, SOMA asks a relevant ordinary question rather than prescribing command syntax.
 
 ## Scheduling, meaningful change and delivery
 
 A supervised timer checks at most once per minute while the gateway runs. Each owner has one daily preparation after `daily_time` on the configured local date, plus an improvement review after `review_interval_days` elapsed days. Local-day receipts suppress duplicate work in the repeated autumn hour. If the configured time is skipped by the spring transition or the gateway is offline, preparation runs after that time when the gateway next checks. No backlog of past days is replayed.
 
-Preparation is private and separate from notification: pause and quiet hours can suppress delivery while preparation still runs. A commitment notification is meaningful only when there are active confirmed commitments and their ID/revision snapshot changed. It provides a count and the ledger command, without inventing completion, restating health facts or including free-text commitments. An unchanged snapshot stays silent on subsequent days. Completing, cancelling, correcting or forgetting an entry invalidates an older queued result before handoff. Empty snapshots clear pending commitment notifications.
+Preparation is private and separate from notification: pause and quiet hours can suppress delivery while preparation still runs. A commitment notification is meaningful only when there are active confirmed commitments and their ID/revision snapshot changed. It offers to review the next step, without inventing completion, restating health facts or including free-text commitments. An unchanged snapshot stays silent on subsequent days. Completing, cancelling, correcting or forgetting an entry invalidates an older queued result before handoff. Empty snapshots clear pending commitment notifications.
 
-Improvement reviews produce a concise proposal only when there is concrete bounded evidence: at least three unavailable checks/deliveries, at least three turns exceeding ten minutes, or explicit feedback about notification frequency. Proposals explain the evidence and suggest the next step. Unchanged evidence does not repeat a proposal. The component cannot apply a proposal, edit code/configuration, install dependencies, restart services, connect accounts or expand permissions. Any such follow-up requires the user's explicit approval through the appropriate normal workflow. Review messages state that no operational change was applied.
+Improvement reviews produce a concise conversational suggestion only when there is concrete bounded evidence: at least three unavailable checks/deliveries, at least three turns exceeding ten minutes, or explicit frequency feedback. Unchanged evidence does not repeat a proposal. Preparation itself cannot apply a proposal, edit code/configuration, install dependencies, restart services, connect accounts or expand permissions. A subsequent explicit user request can adjust bounded personal notification preferences through the conversational tool; operational changes still require the appropriate separately authorized workflow.
 
 Every outgoing notice resolves the native profile-owned route, rechecks current authorization/subscription/configuration and passes through the durable [delivery gate](heartbeat-gate.md). This enforces quiet hours, timezone/DST, pause, snooze, focus, source feedback, minimum intervals, local-day limits, stale evidence and per-source revision watermarks. The transport uses Hermes' native interim-message path and cannot finish or replace a running answer. Unknown or failed delivery is recorded without automatic retry. A crash after reservation may lose a notice; it cannot create a replayed send. An already handed-off network message cannot be recalled by a later pause. Disabling a source does not erase its watermark.
 
@@ -86,6 +92,8 @@ The old native transcript remains history. The independent confirmed ledger is u
 ## State, disable and rollback
 
 Assistant metadata lives in owner-only `hermes-home/soma-assistant/metadata.sqlite`, bounded to 64 owner records, 16 KiB per owner and 512 SQLite pages. This subscription index stores minimal routing identities, message/day/session receipts, counters, fingerprints and at most two bounded neutral prepared notices per owner. Each query that reads or changes an owner's contents is bound to that owner. The scheduler enumerates only explicitly subscribed owners; it never enumerates their continuity files or health workspaces. Delivery history remains in the gate's separate per-owner files under `$SOMA_RUNTIME_HOME/soma-heartbeat/`. Keep both directories private and outside both repositories. Unsafe paths, permissions, sidecars, unsupported versions and oversized state fail closed; no automatic repair imports user data.
+
+Conversational evidence is process-local and bounded to 256 fresh turn receipts/results and one pending proposal per owner, at most 64. It expires after ten minutes. Pending continuity text is limited to the ledger's 300 characters and held only in memory until confirmation; no message, transcript, audio path or proposal text is copied to assistant metadata. Unload clears these caches. A restarted/replayed turn must receive a fresh human request to authorize a tool. Confirmed ledger changes keep their existing durable revision/replay protections.
 
 Set `settings.enabled: false` to stop timers, controls and boundaries; add the plugin to `plugins.disabled` and restart to unload its hooks and cancel its supervised task. Per-DM `disable` stops that subscription without disabling boundaries configured by the operator. `pause` suppresses delivery while retaining private preparation. Setup never reenables an explicitly disabled plugin or clears state.
 

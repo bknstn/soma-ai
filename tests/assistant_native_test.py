@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib.util
+import json
 import os
 from pathlib import Path
 import socket
@@ -10,7 +11,7 @@ import tempfile
 import threading
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "third_party/hermes-agent"))
@@ -85,6 +86,16 @@ class NativeAssistantTest(unittest.TestCase):
         self.assertFalse(loaded.error, loaded.error)
         component = loaded.module
         self.assertIsNotNone(component)
+        from tools.registry import registry
+        self.assertEqual(set(loaded.tools_registered), {"soma_assistant", "soma_continuity"})
+        for name in loaded.tools_registered:
+            self.assertIsNotNone(registry.get_entry(name, scope=str(home)))
+        manager._discovered = True  # Only these explicitly loaded synthetic components.
+        with patch("hermes_cli.plugins.get_plugin_manager", return_value=manager):
+            from hermes_cli.tools_config import _get_platform_tools
+            with patch("hermes_cli.tools_config._xai_credentials_present", return_value=False):
+                self.assertIn("soma", _get_platform_tools({}, "telegram"))
+                self.assertNotIn("soma", _get_platform_tools({"agent": {"disabled_toolsets": ["soma"]}}, "telegram"))
         db = SessionDB(home / "synthetic-native.sqlite")
         store = SessionStore(home / "sessions", GatewayConfig(), has_active_processes_fn=lambda key: False)
         store._db = db
@@ -225,13 +236,27 @@ class NativeAssistantTest(unittest.TestCase):
                 async def consume(event, source, session_key):
                     result = await component.assistant.admitted(session_key=session_key, platform="telegram", source=source.to_dict(),
                                                                 message_id=event.message_id, text=event.text)
+                    self.assertIsNone(result)  # Wording is interpreted by the model, never intercepted.
                     return result is not None, result.get("reply") if result else None
                 runner._hm_post_admission_consume = consume
                 component.assistant.ingress(event=pause, gateway=runner)
                 self.assertTrue(pause._fifo_only)
-                consumed, reply = await GatewayRunner._hm_authority_admission(runner, pause, pause_source, key, False)
+                with patch("gateway.session_ingress.admit_message", new=AsyncMock(return_value="ordinary conversation")):
+                    consumed, reply = await GatewayRunner._hm_authority_admission(runner, pause, pause_source, key, False)
                 self.assertTrue(consumed)
-                self.assertIn("pause", reply)
+                self.assertEqual(reply, "ordinary conversation")
+                from gateway.session import build_session_context
+                from gateway.session_context import clear_session_vars
+                def tool(name, action, message_id, **arguments):
+                    tool_source = SessionSource(platform=Platform.TELEGRAM, chat_id="1001", user_id="1001", message_id=str(message_id))
+                    context = build_session_context(tool_source, GatewayConfig(), store.lookup_by_session_key(key))
+                    tokens = GatewayRunner._set_session_env(runner, context)
+                    try:
+                        self.assertIsNotNone(component.assistant.conversation.context(user_message="Synthetic successfully transcribed request"))
+                        return json.loads(registry.dispatch(name, {"action": action, **arguments}, scope=str(home)))
+                    finally:
+                        clear_session_vars(tokens)
+                self.assertEqual(tool("soma_assistant", "pause", 4)["status"], "applied")
                 component.assistant.apply_control("telegram:1001", "resume", component.settings(component.assistant.ctx), int(component.time.time()))
                 notices = []
                 class Adapter:
@@ -255,6 +280,37 @@ class NativeAssistantTest(unittest.TestCase):
                 await replacement.tick(runner)
                 self.assertEqual(len(notices), 1)
                 replacement.close()
+                # Genuine adapter VOICE events plus native task-local identity authorize
+                # ordinary tool dispatch, without a command, button or extra model call.
+                async def human(number, text, voice=False):
+                    original = NS(from_user=NS(id=1001, is_bot=False, full_name="Synthetic user"),
+                        chat=NS(id=1001, type="private", title=None, full_name="Synthetic user"), message_id=number,
+                        text=text, entities=[], message_thread_id=None, reply_to_message=None, forum_topic_created=None, date=None,
+                        voice=NS(file_id="synthetic-voice") if voice else None)
+                    message = TelegramAdapter(PlatformConfig(enabled=True, extra={}))._build_message_event(
+                        original, MessageType.VOICE if voice else MessageType.TEXT)
+                    if voice:
+                        message.media_urls = ["/synthetic/voice.ogg"]
+                    component.assistant.ingress(event=message, gateway=runner)
+                    self.assertIsNone(await component.assistant.admitted(session_key=key, platform="telegram",
+                        source=message.source.to_dict(), message_id=message.message_id, text=message.text))
+                await human(5, "No more follow-ups, please", voice=True)
+                self.assertEqual(tool("soma_assistant", "disable", 5)["status"], "applied")
+                await human(6, "Could you keep an eye on my open tasks?")
+                self.assertEqual(tool("soma_assistant", "enable", 6)["status"], "confirmation_required")
+                self.assertFalse(component.assistant.state.get("telegram:1001")["subscribed"])
+                self.assertEqual(tool("soma_assistant", "confirm", 6)["status"], "awaiting_user")
+                await human(7, "That would help, go ahead", voice=True)
+                self.assertEqual(tool("soma_assistant", "confirm", 7)["status"], "applied")
+                await human(8, "Remember that I prefer concise answers", voice=True)
+                self.assertEqual(tool("soma_continuity", "add", 8, kind="preference", text="Prefer concise answers")["status"], "confirmation_required")
+                self.assertEqual(len(tool("soma_continuity", "list", 8)["entries"]), 1)
+                await human(9, "Yes, remember that")
+                self.assertEqual(tool("soma_continuity", "confirm", 9)["status"], "applied")
+                rows = tool("soma_continuity", "list", 9)["entries"]
+                self.assertEqual(len(rows), 2)
+                self.assertIn("Prefer concise answers", [row["text"] for row in rows])
+                self.assertNotIn("Prefer concise answers", json.dumps(component.assistant.state.get("telegram:1001")))
                 with patch("gateway.run._gateway_runner_ref", return_value=runner), \
                         patch("hermes_cli.plugins.get_plugin_manager", return_value=manager):
                     await hook[2]("gateway:startup", {})
@@ -269,6 +325,8 @@ class NativeAssistantTest(unittest.TestCase):
                     await hook[2]("gateway:startup", {})
                     self.assertTrue(component.assistant.task.cancelled())
                     self.assertNotIn("soma-assistant", manager._plugin_commands)
+                    self.assertIsNone(registry.get_entry("soma_assistant", scope=str(home)))
+                    self.assertIsNone(registry.get_entry("soma_continuity", scope=str(home)))
                     callbacks = [hook[1] if isinstance(hook, tuple) else hook for hooks in manager._hooks.values() for hook in hooks]
                     self.assertTrue(all(callback.__module__ != component.__name__ for callback in callbacks))
             asyncio.run(scenario())

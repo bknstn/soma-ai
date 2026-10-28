@@ -1,7 +1,10 @@
 name: soma-assistant
-version: 1.0.0
+version: 1.1.0
 description: Opt-in preparation, improvement proposals and idle-only day boundaries.
 kind: standalone
+provides_tools:
+  - soma_assistant
+  - soma_continuity
 provides_hooks:
   - pre_gateway_dispatch
   - post_gateway_admission
