@@ -66,6 +66,8 @@ def deny_network(*args, **kwargs):
 with patch.object(socket.socket, "connect", deny_network), patch.object(socket.socket, "connect_ex", deny_network):
     from hermes_cli.plugins import _ensure_plugins_discovered
     _ensure_plugins_discovered()
+    from tools.transcription_tools import _resolve_stt_language
+    assert _resolve_stt_language("openai") is None, "SOMA must not inherit the English STT hint"
     from agent.web_search_registry import get_active_search_provider
     provider = get_active_search_provider()
     assert provider is not None and provider.name == "soma-openai"

@@ -12,11 +12,15 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 - Clarified reply-language selection for text and voice: follow the current user's
   language rather than English gateway labels, and refresh this policy in existing
   managed personas during runtime setup while preserving custom instructions.
+- Enabled automatic speech-language detection during setup, replacing Hermes'
+  inherited English hint and built-in provider language overrides without changing
+  provider/model selection or credentials.
 
 ### Upgrade
 
 - Rerun managed runtime setup with the existing explicit `SOMA_RUNTIME_HOME`, then
   restart chat or the gateway to load the updated response-language policy.
+  Setup clears forced input-language hints for built-in speech providers.
 
 ## [0.1.0] - 2026-10-28
 

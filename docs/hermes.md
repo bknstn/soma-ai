@@ -39,6 +39,12 @@ outside that block. Older personas without the block receive it once. This is a
 model instruction; offline tests verify installation and preservation, not live
 model language compliance or speech-recognition accuracy.
 
+Setup also selects automatic speech-language detection: it writes `stt.language: ""`
+and clears existing `language`/`language_code` hints for built-in STT providers.
+This replaces Hermes' inherited English hint and any previously forced input
+language. Provider selection, models, credentials and other settings are preserved.
+Do not use the literal `"auto"` as a cloud STT language code.
+
 ## Configure a model provider
 
 `SOMA_RUNTIME=hermes` selects the agent runtime. It is separate from Hermes' model provider and model selection. If no model is configured, run the managed configuration command:

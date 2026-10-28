@@ -1,10 +1,12 @@
 """Offline persona upgrades using only disposable synthetic runtime homes."""
 
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +25,7 @@ class PersonaTest(unittest.TestCase):
         self.template = self.source.read_text()
         start, end = persona.policy_span(self.template)
         self.policy = self.template[start:end]
+        self.yaml = SimpleNamespace(load=json.loads, dump=lambda value, stream: json.dump(value, stream))
 
     def cleanup(self):
         self.temp.cleanup()
@@ -83,6 +86,58 @@ class PersonaTest(unittest.TestCase):
                 self.install()
         self.assertEqual(self.target.read_text(), "Synthetic existing persona")
         self.assertFalse(list(self.home.glob(".soma-persona-*")))
+
+    def test_stt_auto_detection_is_seeded_and_repeat_is_noop(self):
+        persona.configure_transcription(self.home, self.yaml)
+        config = self.home / "config.yaml"
+        self.assertEqual(json.loads(config.read_text()), {"stt": {"language": ""}})
+        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+        with patch.object(persona.os, "replace") as replace:
+            persona.configure_transcription(self.home, self.yaml)
+        replace.assert_not_called()
+
+    def test_stt_english_and_provider_hints_are_cleared_preserving_other_settings(self):
+        original = {"model": {"provider": "synthetic", "default": "synthetic-model"},
+                    "plugins": {"enabled": ["synthetic-plugin"]},
+                    "stt": {"language": "en", "provider": "openai", "enabled": True,
+                            "openai": {"language": "en", "model": "synthetic-stt", "timeout": 42},
+                            "elevenlabs": {"language_code": "eng"}, "local": {"language": "ru"}}}
+        config = self.home / "config.yaml"
+        config.write_text(json.dumps(original))
+        persona.configure_transcription(self.home, self.yaml)
+        expected = json.loads(json.dumps(original))
+        expected["stt"]["language"] = ""
+        expected["stt"]["openai"]["language"] = ""
+        expected["stt"]["elevenlabs"]["language_code"] = ""
+        expected["stt"]["local"]["language"] = ""
+        self.assertEqual(json.loads(config.read_text()), expected)
+        self.assertFalse(list(self.home.glob(".soma-language-*")))
+
+    def test_invalid_stt_and_symlink_config_fail_without_changes(self):
+        config = self.home / "config.yaml"
+        for value in ({"stt": []}, {"stt": {"openai": "invalid"}}):
+            original = json.dumps(value)
+            config.write_text(original)
+            with self.assertRaises(ValueError):
+                persona.configure_transcription(self.home, self.yaml)
+            self.assertEqual(config.read_text(), original)
+        config.unlink()
+        outside = self.home / "synthetic-config.json"
+        outside.write_text("{}")
+        config.symlink_to(outside)
+        with self.assertRaises(Exception):
+            persona.configure_transcription(self.home, self.yaml)
+        self.assertEqual(outside.read_text(), "{}")
+
+    def test_failed_stt_replace_preserves_config_and_cleans_temporary(self):
+        config = self.home / "config.yaml"
+        config.write_text('{"stt":{"language":"en"}}')
+        original = config.read_bytes()
+        with patch.object(persona.os, "replace", side_effect=OSError("Synthetic failure")):
+            with self.assertRaises(OSError):
+                persona.configure_transcription(self.home, self.yaml)
+        self.assertEqual(config.read_bytes(), original)
+        self.assertFalse(list(self.home.glob(".soma-language-*")))
 
 
 if __name__ == "__main__":
