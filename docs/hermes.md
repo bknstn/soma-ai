@@ -47,6 +47,47 @@ This command accepts only those three names, installs through Hermes' pinned pac
 
 Use the provider selector again to change providers. That changes the LLM connection inside Hermes; changing `SOMA_RUNTIME` selects a different SOMA conversation-runtime module. The current module is Hermes. For available providers and their setup requirements, see the pinned upstream [provider guide](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/website/docs/integrations/providers.md) and [configuration guide](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/website/docs/user-guide/configuration.md).
 
+## OpenAI web search
+
+`runtime:setup` installs SOMA's `soma-openai-search` Hermes plugin and selects
+`web.search_backend: soma-openai` when no search backend is already configured.
+It uses the same `OPENAI_API_KEY` as OpenAI chat, including keys entered through
+the managed provider prompt; no separate search key or Codex OAuth login is required.
+The pinned Hermes `openai-native` backend requires Codex OAuth and is a different integration.
+
+For an existing runtime, rerun `npm run runtime:setup` with its explicit
+`SOMA_RUNTIME_HOME`, then restart chat or the gateway. Setup refreshes the managed
+plugin and preserves unrelated configuration, an explicitly chosen backend, and an
+explicitly disabled plugin. To switch an existing search selection to OpenAI, merge
+this into the private `hermes-home/config.yaml` (keep existing plugin entries):
+
+```yaml
+web:
+  search_backend: soma-openai
+  keyless_rescue: false
+  openai:
+    model: gpt-6-astra
+plugins:
+  enabled:
+    - soma-openai-search
+```
+
+The search model defaults to `gpt-6-astra`; `web.openai.model` can select another
+model that supports the Responses API `web_search` tool. The conversation model
+is configured independently. If platform toolsets were customized, include `web`
+for CLI/Telegram. Search returns cited source URLs and a summary for Hermes to
+use with clickable links. It does not implement arbitrary page extraction;
+`web_extract` keeps its separate Hermes backend.
+
+Requests go directly to OpenAI's fixed Responses endpoint with `store: false`
+and a required `web_search` call. Only the explicit search query is sent, without
+conversation history or local health context. Use general queries without personal
+health facts. Setup disables automatic third-party search rescue for this backend.
+Searches incur OpenAI model/tool usage on the existing API account;
+API access and quota must permit the selected model and search tool. See
+[OpenAI's web search documentation](https://developers.openai.com/api/docs/guides/tools-web-search).
+Setup, doctor, and tests make no live model requests.
+
 ## Managed Telegram gateway
 
 `npm run gateway` starts the pinned Telegram adapter in the foreground for an external service manager. The command requires explicit `HEALTH_OS_REPO` and `HEALTH_OS_WORKSPACE` paths, a private runtime home, `TELEGRAM_BOT_TOKEN`, and a comma-separated numeric `TELEGRAM_ALLOWED_USERS` list. It passes only credential variables on the runtime adapter's allowlist and these two Telegram values; the OpenAI example uses `OPENAI_API_KEY`. It refuses other enabled channels, Hermes named profiles, `.env`/`.op.env` secret files, adapter-level Telegram allowlists, and a configuration that does not silently ignore unauthorized DMs. The managed gateway supports Telegram polling; webhook and other channel settings are not supported.

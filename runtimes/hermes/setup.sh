@@ -200,4 +200,13 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 ' "$script_dir/install-continuity.py" "$script_dir/plugins/$component" "$hermes_home") >&2
 done
 
+printf 'Installing the SOMA OpenAI web search plugin…\n' >&2
+(cd "$source_dir" && "$hermes_python" -c '
+import hermes_bootstrap
+import runpy
+import sys
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+' "$script_dir/install-web-search.py" "$script_dir/plugins/soma-openai-search" "$hermes_home") >&2
+
 printf 'Hermes runtime setup completed under SOMA_RUNTIME_HOME.\n' >&2

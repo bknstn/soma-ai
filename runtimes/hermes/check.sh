@@ -74,6 +74,8 @@ python_file="$runtime_home/$python_file_name"
 [ -f "$hermes_home/SOUL.md" ] || fail 'persona_missing'
 [ -f "$hermes_home/skills/soma-health/SKILL.md" ] || fail 'skill_missing'
 [ -f "$hermes_home/skills/soma-health-actions/SKILL.md" ] || fail 'action_skill_missing'
+[ -f "$hermes_home/plugins/soma-openai-search/__init__.py" ] &&
+  [ -f "$hermes_home/plugins/soma-openai-search/plugin.yaml" ] || fail 'web_search_plugin_missing'
 [ -f "$python_file" ] || fail 'python_locator_missing'
 if ! node --input-type=module -e '
   import fs from "node:fs";

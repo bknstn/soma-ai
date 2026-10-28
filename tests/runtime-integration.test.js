@@ -50,6 +50,57 @@ test('managed Hermes runtime runs offline doctor, CLI help, and local skill load
   assert.match(runRuntime(['skills', 'list']), /soma-health/);
 });
 
+test('installed OpenAI plugin is discovered and dispatches real web_search offline', { skip: !enabled }, () => {
+  const runtimeHome = process.env.SOMA_RUNTIME_HOME;
+  assert.equal(runtimeHome, path.resolve(process.env.RUNNER_TEMP, 'soma-hermes-runtime'));
+  const python = fs.readFileSync(path.join(runtimeHome, 'hermes-python.txt'), 'utf8').trim();
+  const result = spawnSync(python, ['-B', '-c', `
+import hermes_bootstrap
+import json
+import socket
+from unittest.mock import Mock, patch
+
+def deny_network(*args, **kwargs):
+    raise AssertionError("Offline integration must not access the network")
+
+with patch.object(socket.socket, "connect", deny_network), patch.object(socket.socket, "connect_ex", deny_network):
+    from hermes_cli.plugins import _ensure_plugins_discovered
+    _ensure_plugins_discovered()
+    from agent.web_search_registry import get_active_search_provider
+    provider = get_active_search_provider()
+    assert provider is not None and provider.name == "soma-openai"
+    assert provider.is_available()
+    assert not provider.supports_extract()
+    from tools.web_tools import web_search_tool
+    fixture = {"status": "completed", "output": [
+        {"type": "web_search_call", "status": "completed"},
+        {"type": "message", "content": [{"type": "output_text", "text": "Synthetic research.",
+            "annotations": [{"type": "url_citation", "url": "https://example.com/research", "title": "Research"}]}]}]}
+    with patch("httpx.post", return_value=Mock(status_code=200, json=lambda: fixture)) as request:
+        result = json.loads(web_search_tool("synthetic public research", limit=2))
+        assert result["success"], result
+        assert result["data"]["web"][0]["url"] == "https://example.com/research"
+        assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer SYNTHETIC_SEARCH_KEY"
+        assert request.call_args.kwargs["json"]["tool_choice"] == "required"
+    print("soma-openai-dispatch-ok")
+`], {
+    cwd: path.join(repoRoot, 'third_party/hermes-agent'),
+    env: {
+      PATH: process.env.PATH,
+      HOME: path.join(runtimeHome, 'user-home'),
+      HERMES_HOME: path.join(runtimeHome, 'hermes-home'),
+      HERMES_MANAGED_DIR: path.join(runtimeHome, 'hermes-managed'),
+      HERMES_RUNTIME_DIR: path.join(runtimeHome, 'hermes-tools'),
+      HERMES_DISABLE_LAZY_INSTALLS: '1',
+      PYTHONNOUSERSITE: '1',
+      OPENAI_API_KEY: 'SYNTHETIC_SEARCH_KEY'
+    }, encoding: 'utf8', timeout: 60000, maxBuffer: 1024 * 1024
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /soma-openai-dispatch-ok/);
+});
+
 test('isolated Telegram gateway preflight uses pinned config and auth with mocked final spawn', { skip: !enabled }, async (t) => {
   const runnerTemp = process.env.RUNNER_TEMP;
   const runtimeHome = process.env.SOMA_RUNTIME_HOME;

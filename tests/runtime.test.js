@@ -130,6 +130,10 @@ function runHermesCheckWithSkillList(t, skillList) {
   fs.mkdirSync(path.join(hermesHome, 'skills', 'soma-health-actions'), { recursive: true });
   fs.writeFileSync(path.join(hermesHome, 'skills', 'soma-health', 'SKILL.md'), 'synthetic\n');
   fs.writeFileSync(path.join(hermesHome, 'skills', 'soma-health-actions', 'SKILL.md'), 'synthetic\n');
+  fs.mkdirSync(path.join(hermesHome, 'plugins', 'soma-openai-search'), { recursive: true });
+  for (const name of ['__init__.py', 'plugin.yaml']) {
+    fs.writeFileSync(path.join(hermesHome, 'plugins', 'soma-openai-search', name), 'synthetic\n');
+  }
 
   const hermesPython = path.join(runtimeHome, manifest.runtime.runtime_dir, 'python-3.14', 'bin', 'python3');
   fs.mkdirSync(path.dirname(hermesPython), { recursive: true });

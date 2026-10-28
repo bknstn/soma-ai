@@ -1,0 +1,6 @@
+name: soma-openai-search
+version: 1.0.0
+description: OpenAI Responses web search using the existing OPENAI_API_KEY.
+kind: backend
+provides_web_providers:
+  - soma-openai
