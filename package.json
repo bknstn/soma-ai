@@ -19,6 +19,7 @@
     "gateway": "node src/runtime/cli.js gateway",
     "vps:ssh": "sh scripts/vps-ssh.sh",
     "demo": "node examples/demo.mjs",
+    "release:check": "node scripts/check-release.js",
     "test": "node --test tests/*.test.js"
   }
 }

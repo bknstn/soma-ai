@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadConfig } from './config.js';
 import { HealthOsClient } from './health-os-client.js';
+import { SOMA_VERSION } from './version.js';
 import {
   presentDoctor,
   presentPreparation,
@@ -85,6 +86,7 @@ Options:
   --as-of RFC3339       Exact cutoff; omitted cutoff means the current instant
   --json                Emit a small schema-versioned JSON response
   --help                Show this help
+  --version, -v         Show the SOMA version (without configuration)
 `;
 
 class CliError extends Error {
@@ -97,6 +99,7 @@ class CliError extends Error {
 }
 
 function parseArgs(argv) {
+  if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return { version: true };
   const command = argv[0];
   if (argv.length === 0 || command === '--help' || command === '-h') return { help: true, command: null };
   if (!COMMANDS.has(command)) throw new CliError('Choose doctor, init, prepare-training, or health-action.');
@@ -264,6 +267,10 @@ export async function runCli(argv, dependencies = {}) {
   let json = argv.includes('--json');
   try {
     const parsed = parseArgs(argv);
+    if (parsed.version) {
+      stdout.write(`${SOMA_VERSION}\n`);
+      return 0;
+    }
     command = parsed.command;
     json = parsed.json === true;
     if (parsed.help) {

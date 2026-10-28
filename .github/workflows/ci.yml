@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
+    branches:
+      - '**'
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -42,6 +45,10 @@ jobs:
         env:
           HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
         run: npm test
+
+      - name: Validate product version and release notes
+        working-directory: soma-ai
+        run: npm run release:check
 
       - name: Run pinned Health OS integration smoke
         working-directory: soma-ai

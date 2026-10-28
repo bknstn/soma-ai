@@ -41,6 +41,13 @@ The opt-in [scheduled assistant](docs/assistant.md) adds private daily preparati
 
 SOMA includes a bounded Telegram gateway command, a systemd user-service template, and a non-secret [environment example](deploy/systemd/gateway.env.example). Follow the [Hermes gateway setup](docs/hermes.md#managed-telegram-gateway) and [deployment guide](docs/vps.md) to configure your own host, isolated paths, credentials, and service. SSH access requires an explicit `SOMA_VPS_SSH_HOST` value; keep actual connection details outside Git.
 
+## Releases
+
+The first release baseline is **0.1.0**. SOMA follows Semantic Versioning; check
+your version with `npm start -- --version`. See the [changelog](CHANGELOG.md) for
+release notes and the [release guide](docs/releases.md) for version policy and
+the tag-driven release process.
+
 ## Disclaimer
 
 Soma AI and its outputs have not been clinically validated. The software is for personal planning, not medical advice, diagnosis, or treatment. AI-generated output may be incomplete or wrong; independently verify it before acting, and consult a qualified clinician for medical decisions. Use it at your own risk. The software is provided “as is”; to the fullest extent permitted by applicable law, the authors disclaim warranties and liability as described in the [MIT License](LICENSE).

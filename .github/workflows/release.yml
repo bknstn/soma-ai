@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.13.0
+          package-manager-cache: false
+      - name: Validate tag and release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/check-release.js "$RELEASE_TAG"
+
+  test:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.13.0
+          package-manager-cache: false
+      - name: Publish changelog entry as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          notes_file="$(mktemp "$RUNNER_TEMP/soma-release-notes.XXXXXX")"
+          trap 'rm -f -- "$notes_file"; test ! -e "$notes_file"' EXIT
+          node scripts/check-release.js "$RELEASE_TAG" > "$notes_file"
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo "Release already exists; preserving it."
+            exit 0
+          fi
+          flags=()
+          version="${RELEASE_TAG#v}"
+          if [[ "${version%%+*}" == *-* ]]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "SOMA $version" --notes-file "$notes_file" "${flags[@]}"

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { RuntimeError, createRuntimeManager } from './manager.js';
+import { SOMA_VERSION } from '../version.js';
 
 export const RUNTIME_HELP = `Usage: node src/runtime/cli.js <command> [options]
 
@@ -24,6 +25,7 @@ Options:
   --file PATH          Context policy patch (context only)
   --context-window N  Preview context budgets for an explicit window (context only)
   --help               Show this help
+  --version, -v        Show the SOMA version (without runtime setup)
 
 Chat smoke check:
   node src/runtime/cli.js chat --help
@@ -39,6 +41,7 @@ class RuntimeCliError extends Error {
 }
 
 function parseArgs(argv) {
+  if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return { version: true };
   const options = { json: false };
   let command;
   const extra = [];
@@ -131,6 +134,10 @@ export async function runRuntimeCli(argv, dependencies = {}) {
   let json = argv.includes('--json');
   try {
     const parsed = parseArgs(argv);
+    if (parsed.version) {
+      stdout.write(`${SOMA_VERSION}\n`);
+      return 0;
+    }
     command = parsed.command;
     json = parsed.json === true;
     if (parsed.help) {
