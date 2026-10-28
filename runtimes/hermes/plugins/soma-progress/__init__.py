@@ -6,7 +6,7 @@ import re
 import threading
 import time
 
-DEFAULT_MESSAGE = "The current request is still running. I will send the result when it is ready."
+DEFAULT_MESSAGE = "Still working on your request."
 MAX_ACTIVE = 128
 MAX_INGRESS = 256
 MAX_AGE = 21600

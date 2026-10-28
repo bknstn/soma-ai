@@ -22,6 +22,15 @@ required_environment_variables:
 
 Use only the explicit local Health OS workspace configured by SOMA. This skill exposes bounded profile/history reads and two explicit writes through the allowlisted SOMA CLI. It does not grant arbitrary Health OS command access.
 
+## Reply style
+
+Lead with the result in one to three short sentences or a compact list/table. For history,
+include only the requested sessions and relevant exercise values; expand only when asked.
+Preserve units, incomplete-data warnings and unknown write outcomes. Confirm a write only
+after verified success. If an action is unavailable, state that you cannot do it and give
+the specific known reason, such as writes not being enabled. Do not dump tool metadata,
+recap the procedure or suggest bypassing the restriction.
+
 ## Requirements
 
 - SOMA_REPO, HEALTH_OS_REPO, and HEALTH_OS_WORKSPACE must be configured as absolute paths.

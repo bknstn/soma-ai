@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('persona setup refreshes language policy safely in new and existing runtimes', () => {
+test('persona setup refreshes language and style policies safely in new and existing runtimes', () => {
   const result = spawnSync('python3', ['-I', '-B', 'tests/persona_test.py'], {
     cwd: repoRoot,
     env: { PATH: process.env.PATH },

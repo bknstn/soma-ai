@@ -32,12 +32,21 @@ messages use the language of the speech transcript, including when the gateway's
 surrounding labels are in English. An explicit request for another language takes
 precedence. Written and spoken versions of an answer use the same language.
 
+SOMA replies briefly by default across chat, voice, reports and notifications. Simple
+answers use one to three short sentences; reports use a compact list or table. Full
+explanations are given when requested. Essential units, source references, constraints
+and uncertainty stay visible. When an action is unavailable, SOMA states the limitation
+and its known reason directly, without claiming success or inventing a cause.
+
 For an existing runtime, rerun `npm run runtime:setup` with its explicit
 `SOMA_RUNTIME_HOME`, then restart chat or the gateway. Setup refreshes the marked
-response-language block in `hermes-home/SOUL.md` and preserves all persona text
-outside that block. Older personas without the block receive it once. This is a
-model instruction; offline tests verify installation and preservation, not live
-model language compliance or speech-recognition accuracy.
+response-language and response-style blocks in `hermes-home/SOUL.md` and preserves all persona text
+outside those blocks. Older personas receive missing blocks once. Custom instructions
+outside the managed blocks remain in place; conflicting verbosity instructions there
+need an operator review. Existing installed health skills are seeded only when missing;
+the managed style policy also applies to their reports. These are
+model instructions; offline tests verify installation and preservation, not live
+model style/language compliance or speech-recognition accuracy.
 
 Setup also selects automatic speech-language detection: it writes `stt.language: ""`
 and clears existing `language`/`language_code` hints for built-in STT providers.
