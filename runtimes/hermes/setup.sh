@@ -172,7 +172,7 @@ seed_file_if_missing() {
   fi
 }
 
-seed_file_if_missing "$repo_root/$soul_template" "$hermes_home/SOUL.md"
+"$hermes_python" -I -B "$script_dir/install-persona.py" "$repo_root/$soul_template" "$hermes_home"
 mkdir -p "$hermes_home/skills"
 for skill_source in "$skill_source" "$action_skill_source"; do
   case "$skill_source" in skills/*) ;; *) fail 'A managed skill source path is invalid.' ;; esac

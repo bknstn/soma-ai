@@ -27,6 +27,18 @@ npm run runtime:doctor
 
 Keep the same `SOMA_RUNTIME` and `SOMA_RUNTIME_HOME` values for setup, checks, and chat. They can be placed in a local `.env` copied from [.env.example](../.env.example); SOMA does not load `.env` files automatically, so export or source the file in the shell before running a command.
 
+SOMA's response-language policy follows the current user message on every turn. Voice
+messages use the language of the speech transcript, including when the gateway's
+surrounding labels are in English. An explicit request for another language takes
+precedence. Written and spoken versions of an answer use the same language.
+
+For an existing runtime, rerun `npm run runtime:setup` with its explicit
+`SOMA_RUNTIME_HOME`, then restart chat or the gateway. Setup refreshes the marked
+response-language block in `hermes-home/SOUL.md` and preserves all persona text
+outside that block. Older personas without the block receive it once. This is a
+model instruction; offline tests verify installation and preservation, not live
+model language compliance or speech-recognition accuracy.
+
 ## Configure a model provider
 
 `SOMA_RUNTIME=hermes` selects the agent runtime. It is separate from Hermes' model provider and model selection. If no model is configured, run the managed configuration command:

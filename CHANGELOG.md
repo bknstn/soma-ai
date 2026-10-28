@@ -5,6 +5,19 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-28
+
+### Fixed
+
+- Clarified reply-language selection for text and voice: follow the current user's
+  language rather than English gateway labels, and refresh this policy in existing
+  managed personas during runtime setup while preserving custom instructions.
+
+### Upgrade
+
+- Rerun managed runtime setup with the existing explicit `SOMA_RUNTIME_HOME`, then
+  restart chat or the gateway to load the updated response-language policy.
+
 ## [0.1.0] - 2026-10-28
 
 First release baseline for the existing SOMA implementation. This starts the
