@@ -239,7 +239,11 @@ class NativeAssistantTest(unittest.TestCase):
                     self.assertIsNone(result)  # Wording is interpreted by the model, never intercepted.
                     return result is not None, result.get("reply") if result else None
                 runner._hm_post_admission_consume = consume
-                component.assistant.ingress(event=pause, gateway=runner)
+                # This section drives delivery explicitly. Ingress must not start
+                # a competing monitor that can claim the same notice first.
+                # Real supervised startup/unload is exercised below.
+                with patch.object(component.assistant, "start"):
+                    component.assistant.ingress(event=pause, gateway=runner)
                 self.assertTrue(pause._fifo_only)
                 with patch("gateway.session_ingress.admit_message", new=AsyncMock(return_value="ordinary conversation")):
                     consumed, reply = await GatewayRunner._hm_authority_admission(runner, pause, pause_source, key, False)
@@ -291,7 +295,8 @@ class NativeAssistantTest(unittest.TestCase):
                         original, MessageType.VOICE if voice else MessageType.TEXT)
                     if voice:
                         message.media_urls = ["/synthetic/voice.ogg"]
-                    component.assistant.ingress(event=message, gateway=runner)
+                    with patch.object(component.assistant, "start"):
+                        component.assistant.ingress(event=message, gateway=runner)
                     self.assertIsNone(await component.assistant.admitted(session_key=key, platform="telegram",
                         source=message.source.to_dict(), message_id=message.message_id, text=message.text))
                 await human(5, "No more follow-ups, please", voice=True)
