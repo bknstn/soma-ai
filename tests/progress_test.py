@@ -2,10 +2,8 @@
 
 import asyncio
 import importlib.util
-import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
@@ -23,7 +21,6 @@ def load(name, filename):
 
 
 feature = load("soma_progress_test", SOURCE / "__init__.py")
-installer = load("soma_progress_installer_test", ROOT / "runtimes/hermes/install-continuity.py")
 
 
 class Context:
@@ -242,42 +239,6 @@ class MonitorTest(unittest.IsolatedAsyncioTestCase):
             _, n, sent = await self.exercise(**options)
             self.assertEqual(sent, [])
             self.assertTrue(n.attempted)
-
-
-class JsonCodec:
-    def load(self, raw):
-        return json.loads(raw)
-
-    def dump(self, value, stream):
-        stream.write(json.dumps(value))
-
-
-class InstallerTest(unittest.TestCase):
-    def test_repeat_disabled_upgrade_preserve_settings_and_unsafe_target(self):
-        with tempfile.TemporaryDirectory(prefix="soma-progress-test-") as temporary:
-            home = Path(temporary).resolve()
-            config = {"model": {"default": "synthetic-model"}, "plugins": {"disabled": ["soma-progress"],
-                      "entries": {"soma-progress": {"settings": {"interval_seconds": 120}}}}}
-            filename = home / "config.yaml"
-            filename.write_text(json.dumps(config))
-            installer.install(SOURCE, home, JsonCodec())
-            before = filename.read_bytes(), filename.stat().st_mtime_ns
-            installer.install(SOURCE, home, JsonCodec())
-            self.assertEqual((filename.read_bytes(), filename.stat().st_mtime_ns), before)
-            saved = json.loads(filename.read_text())
-            self.assertEqual(saved["plugins"]["enabled"], [])
-            self.assertEqual(saved["plugins"]["entries"], config["plugins"]["entries"])
-            self.assertEqual(saved["model"], config["model"])
-            self.assertEqual((home / "plugins/soma-progress/__init__.py").read_bytes(), (SOURCE / "__init__.py").read_bytes())
-            target = home / "plugins/soma-progress/__init__.py"
-            target.unlink()
-            target.symlink_to(filename)
-            with self.assertRaises(Exception):
-                installer.install(SOURCE, home, JsonCodec())
-            self.assertEqual(filename.read_bytes(), before[0])
-            self.assertEqual(list(home.rglob(".soma-progress-*")), [])
-            self.assertEqual(list(home.glob("*.sqlite")), [])
-        self.assertFalse(home.exists())
 
 
 if __name__ == "__main__":

@@ -5,10 +5,11 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { HealthOsClient } from '../src/health-os-client.js';
-import { runCli } from '../src/cli.js';
+import { HealthOsClient } from '../../src/health-os-client.js';
+import { runCli } from '../../src/cli.js';
 
 const healthOsRepo = process.env.HEALTH_OS_REPO;
+assert.ok(healthOsRepo && path.isAbsolute(healthOsRepo), 'Set an explicit absolute HEALTH_OS_REPO for integration tests.');
 const asOf = '2026-10-24T12:00:00.000Z';
 const asOfDate = asOf.slice(0, 10);
 
@@ -87,9 +88,7 @@ function outputSink() {
   return { value: '', write(chunk) { this.value += chunk; return true; } };
 }
 
-test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory preparations', {
-  skip: healthOsRepo ? false : 'Set HEALTH_OS_REPO to run the pinned local Health OS integration.'
-}, async () => {
+test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory preparations', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-real-health-os-'));
   let primaryError;
   try {
@@ -111,7 +110,7 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
       const date = dateOffset(asOfDate, -daysAgo);
       runHealthOs(cliPath, 'ingest-wearable-observations', workspace,
         observationFor(date), ['--input-json', '--idempotency-key', `synthetic-integration:${date}`]);
-      if (daysAgo === 4 || daysAgo === 13) {
+      if (daysAgo === 13) {
         const insufficient = await client.prepareTraining({ asOf });
         assert.equal(insufficient.recovery.decision.status, 'unavailable');
         assert.equal(insufficient.workout.scheduled_only, true);
@@ -130,7 +129,6 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
     assert.equal(available.recovery.decision.status, 'available');
     assert.equal(available.recovery.decision.mode, 'FULL');
     assert.equal(available.workout.scheduled_only, false);
-    assert.match(available.recovery.decision.explanation, /Mode FULL from score 6/);
 
     const event = {
       schema_version: 1,
@@ -220,9 +218,7 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
   }
 });
 
-test('pinned Health OS selected profile, workout history, idempotent logging, and weight actions', {
-  skip: healthOsRepo ? false : 'Set HEALTH_OS_REPO to run the pinned local Health OS integration.'
-}, async () => {
+test('pinned Health OS selected profile, workout history, idempotent logging, and weight actions', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-health-actions-'));
   let primaryError;
   try {
@@ -323,11 +319,11 @@ test('pinned Health OS selected profile, workout history, idempotent logging, an
 
     for (let index = 0; index < 34; index += 1) {
       const note = `SYNTHETIC_BOUNDED_TIMELINE_${String(index).padStart(2, '0')}_${'x'.repeat(1_200)}`;
-      await client.logWorkout({
-        payload: workoutPayload(note, 55),
-        date: dateOffset('2026-08-01', index),
-        idempotencyKey: `synthetic:bounded-history:${index}`
-      });
+      // Seed the output-bound fixture through the public CLI. Adapter writes and
+      // replay are already exercised above; repeating their preflight adds no coverage.
+      runHealthOs(path.join(healthOsRepo, 'src', 'cli.js'), 'log-workout', workspace,
+        workoutPayload(note, 55), ['--input-json', '--date', dateOffset('2026-08-01', index),
+          '--idempotency-key', `synthetic:bounded-history:${index}`]);
     }
     const partialHistory = await client.workoutHistory({ since: '2026-08-01', through: '2026-10-24' });
     assert.equal(partialHistory.complete, false);

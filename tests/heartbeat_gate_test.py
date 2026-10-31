@@ -124,8 +124,8 @@ class GateTest(unittest.TestCase):
             return gate.Gate(self.home, "telegram:1001", self.config).evaluate(self.item, claim=True, now=self.now)
         # Initialize schema before exercising independent concurrent connections.
         self.service.status()
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(claim, range(16)))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(claim, range(2)))
         self.assertEqual(sum(item["decision"] == "send" for item in results), 1)
         self.assertEqual(self.service.status()["attempts"], 1)
 

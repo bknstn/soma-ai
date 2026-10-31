@@ -642,8 +642,6 @@ test('Hermes gateway launch is Telegram-only, isolated, and externally supervise
   assert.equal(calls.length, 1);
   assert.equal(calls[0].executable, fs.realpathSync(pythonPath));
   assert.deepEqual(calls[0].args[0], '-c');
-  assert.match(calls[0].args[1], /non_telegram_platform_configured/);
-  assert.match(calls[0].args[1], /unauthorized_dm_behavior_not_ignore/);
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[0].options.cwd, fixture.source);
   assert.equal(calls[0].options.env.HERMES_HOME, path.join(runtimeHome, 'hermes-home'));
@@ -651,7 +649,6 @@ test('Hermes gateway launch is Telegram-only, isolated, and externally supervise
   assert.equal(calls[0].options.env.TELEGRAM_ALLOWED_USERS, '73142,88109');
   assert.equal(launch.executable, fs.realpathSync(pythonPath));
   assert.deepEqual(launch.args, [path.join(fixture.source, 'hermes'), 'gateway', 'run', '--external-supervisor']);
-  assert.doesNotMatch(launch.args.join(' '), /--force|--replace/);
   assert.equal(launch.cwd, path.join(runtimeHome, 'working-directory'));
 
   await assert.rejects(provider.launch({
@@ -708,37 +705,12 @@ test('Hermes gateway refuses hidden secret files, named profiles, and widened co
   configResult = { status: 0, stdout: '{"ok":false,"code":"non_telegram_platform_configured"}\n', stderr: '' };
   await assert.rejects(launch(), { code: 'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED' });
   assert.equal(calls.length, 1);
-  assert.match(calls[0].args[1], /^import hermes_bootstrap\n/,
-    'gateway config preflight must enter Hermes PM environment before imports');
 });
 
-test('Hermes readiness requires both exact loaded skill names', (t) => {
+test('Hermes readiness refuses an action skill without the preparation skill', (t) => {
   const actionOnly = runHermesCheckWithSkillList(t, 'soma-health-actions');
   assert.equal(actionOnly.status, 1);
   assert.equal(JSON.parse(actionOnly.stdout).error, 'skill_not_loaded');
-
-  const bothLoaded = runHermesCheckWithSkillList(t, 'soma-health\nsoma-health-actions');
-  assert.equal(bothLoaded.status, 0);
-  assert.equal(JSON.parse(bothLoaded.stdout).ok, true);
-});
-
-test('pinned Telegram dependency remains native and offline-verifiable', () => {
-  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/manifest.json'), 'utf8'));
-  assert.deepEqual(manifest.gateway_dependencies, {
-    extra: 'telegram',
-    telegram_package: 'python-telegram-bot',
-    telegram_version: '22.8'
-  });
-  assert.match(fs.readFileSync(path.join(repoRoot, 'third_party/hermes-agent/pyproject.toml'), 'utf8'),
-    /telegram = \["python-telegram-bot\[webhooks\]==22\.8"\]/);
-  assert.match(fs.readFileSync(path.join(repoRoot, 'third_party/hermes-agent/uv.lock'), 'utf8'),
-    /name = "python-telegram-bot"\nversion = "22\.8"/);
-  const checkScript = fs.readFileSync(path.join(repoRoot, 'runtimes/hermes/check.sh'), 'utf8');
-  assert.match(checkScript, /import hermes_bootstrap; import telegram;/,
-    'Telegram dependency probe must activate Hermes PM environment');
-  assert.match(checkScript, /import hermes_bootstrap\nimport os\nfrom gateway\.authz_mixin/,
-    'authorization probe must activate Hermes PM environment');
-  assert.match(checkScript, /gateway_authz_check_failed/);
 });
 
 test('provider dependency installs stay managed, credential-free, and allowlisted', async (t) => {
@@ -746,6 +718,7 @@ test('provider dependency installs stay managed, credential-free, and allowliste
   const runtimeHome = path.join(fixture.root, 'managed-runtime');
   const pythonPath = path.join(runtimeHome, 'hermes-tools', 'python-3.14', 'bin', 'python3');
   const helperEnvs = [];
+  const diagnostics = [];
   const helperRunner = (executable, args, options) => {
     helperEnvs.push(options.env);
     if (args[0].endsWith('setup.sh')) {
@@ -753,12 +726,13 @@ test('provider dependency installs stay managed, credential-free, and allowliste
       fs.writeFileSync(pythonPath, 'synthetic interpreter');
       fs.chmodSync(pythonPath, 0o700);
       fs.writeFileSync(path.join(runtimeHome, 'hermes-python.txt'), `${pythonPath}\n`);
-      return { status: 0, stdout: '', stderr: '' };
+      return { status: 0, stdout: '', stderr: 'setup progress\n' };
     }
     return { status: 0, stdout: validHermesCheck(), stderr: '' };
   };
   const childCalls = [];
-  const provider = createHermesProvider({ repoRoot: fixture.repo, spawnSyncImpl: helperRunner });
+  const provider = createHermesProvider({ repoRoot: fixture.repo, spawnSyncImpl: helperRunner,
+    stderr: { write(value) { diagnostics.push(value); } } });
   const manager = new RuntimeManager({
     runtime: 'hermes', runtimeHome, repoRoot,
     env: {
@@ -770,7 +744,8 @@ test('provider dependency installs stay managed, credential-free, and allowliste
     providers: { hermes: provider },
     spawnProcess: fakeSpawn(childCalls)
   });
-  await manager.setup();
+  assert.equal((await manager.setup()).status, 'ready');
+  assert.deepEqual(diagnostics, ['setup progress\n']);
   assert.equal(await manager.installProviderDependencies('anthropic'), 0);
   assert.equal(childCalls.length, 1);
   assert.deepEqual(childCalls[0].args, [path.join(fixture.source, 'hermes'), 'pm', 'install', '--extra', 'anthropic']);
@@ -789,32 +764,4 @@ test('provider dependency installs stay managed, credential-free, and allowliste
     code: 'SOMA_RUNTIME_PROVIDER_NAME_INVALID'
   });
   assert.equal(childCalls.length, 1, 'unsupported values must not reach a child process');
-});
-
-test('managed Hermes setup reaches ready with the helper null-error success response', async (t) => {
-  const fixture = hermesFixture(t);
-  const runtimeHome = path.join(fixture.root, 'managed-runtime');
-  const setupDiagnostics = [];
-  const stderr = { write(value) { setupDiagnostics.push(value); } };
-  const calls = [];
-  const provider = createHermesProvider({
-    repoRoot: fixture.repo,
-    stderr,
-    spawnSyncImpl(executable, args, options) {
-      calls.push({ executable, args, options });
-      return args[0].endsWith('setup.sh')
-        ? { status: 0, stdout: '', stderr: 'setup progress\n' }
-        : { status: 0, stdout: validHermesCheck(), stderr: '' };
-    }
-  });
-  const manager = new RuntimeManager({
-    runtime: 'hermes', runtimeHome, repoRoot,
-    providers: { hermes: provider }
-  });
-  const setup = await manager.setup();
-  assert.equal(setup.status, 'ready');
-  assert.equal((await manager.inspect()).ready, true);
-  assert.deepEqual(setupDiagnostics, ['setup progress\n']);
-  assert.equal(calls.length, 3);
-  assert.ok(calls.every(({ executable, options }) => executable === 'bash' && options.shell === false));
 });

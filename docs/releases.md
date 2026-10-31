@@ -36,7 +36,7 @@ Use Semantic Versioning (`MAJOR.MINOR.PATCH`) and Git tags named `vX.Y.Z`.
 2. Update the product version using `npm version patch --no-git-tag-version`
    (or `minor`, `major`, or an explicit version). For the first release, retain
    the existing `0.1.0`.
-3. Run `npm run release:check` and `npm test`. Review the full release diff
+3. Run `npm test` (including release metadata validation). Review the full release diff
    against `OPEN_SOURCE_REPO_SAFETY.md`, including release notes, then commit
    the intended release files. Resolve unrelated work separately. Release from
    a clean working tree after CI passes for that commit.

@@ -21,6 +21,8 @@
     "vps:ssh": "sh scripts/vps-ssh.sh",
     "demo": "node examples/demo.mjs",
     "release:check": "node scripts/check-release.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:health-os": "node --test tests/integration/health-os.test.js",
+    "test:hermes": "node --test tests/integration/hermes.test.js"
   }
 }

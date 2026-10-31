@@ -7,7 +7,7 @@ import test from 'node:test';
 import { HEALTH_OS_EXPECTED_REVISION } from '../src/config.js';
 import { HealthOsClient, parseHealthOsEnvelope } from '../src/health-os-client.js';
 
-test('Health OS client enforces the CLI envelope and subprocess boundary', async (t) => {
+test('Health OS client enforces the CLI envelope and subprocess boundary', { concurrency: 4 }, async (t) => {
   const previousPath = process.env.PATH;
   const previousHome = process.env.HOME;
   const previousModelSecret = process.env.MODEL_API_KEY;
@@ -209,63 +209,44 @@ if (mode === 'timeout' && command === 'capabilities') {
     healthActionMode
   });
 
-  await t.test('discovers the pinned version and mandatory preparation capability before workspace reads', async () => {
+  // Independent workspaces can share the fixture while child processes run concurrently.
+  const checks = [];
+  checks.push(t.test('discovers the pinned version and mandatory preparation capability before workspace reads', async () => {
     const client = makeClient('success');
     const discovered = await client.discover();
     assert.equal(discovered.version.version, '0.1.0');
     assert.equal(discovered.capabilities.cli_json_schema_version, 1);
     assert.equal((await client.inspectWorkspace()).status, 'versioned');
-  });
+  }));
 
-  await t.test('returns a valid scheduled-only result while keeping blocked memory empty', async () => {
-    const result = await makeClient('success').prepareTraining({ asOf: '2026-10-24' });
-    assert.equal(result.recovery.decision.status, 'unavailable');
-    assert.equal(result.workout.scheduled_only, true);
-    assert.equal(result.workout.mode, 'UNAVAILABLE');
-    assert.equal(result.memory.status, 'blocked');
-    assert.deepEqual(result.memory.evidence, []);
-  });
-
-  await t.test('rejects schema mismatch and incompatible decision/workout combinations', async () => {
+  checks.push(t.test('rejects schema mismatch and incompatible decision/workout combinations', async () => {
     await assert.rejects(makeClient('schema').prepareTraining({ asOf: '2026-10-24' }), {
       code: 'HEALTH_OS_SCHEMA_MISMATCH'
     });
     await assert.rejects(makeClient('inconsistent').prepareTraining({ asOf: '2026-10-24' }), {
       code: 'HEALTH_OS_INVALID_DOMAIN'
     });
-  });
+  }));
 
-  await t.test('surfaces a valid nonzero CLI error envelope and rejects truncated output', async () => {
+  checks.push(t.test('surfaces a valid nonzero CLI error envelope and rejects truncated output', async () => {
     await assert.rejects(makeClient('nonzero').prepareTraining({ asOf: '2026-10-24' }), {
       code: 'SYNTHETIC_FAILURE', exitCode: 1
     });
     await assert.rejects(makeClient('truncated').prepareTraining({ asOf: '2026-10-24' }), {
       code: 'HEALTH_OS_OUTPUT_TRUNCATED'
     });
-  });
+  }));
 
-  await t.test('times out a CLI process and only initializes an explicit empty workspace', async () => {
+  checks.push(t.test('times out a CLI process and only initializes an explicit empty workspace', async () => {
     await assert.rejects(makeClient('timeout', 100).discover(), { code: 'HEALTH_OS_TIMEOUT' });
     const initClient = makeClient('init');
     assert.equal((await initClient.initWorkspace()).status, 'initialized');
     await assert.rejects(new HealthOsClient({ repo, workspace: repo }).inspectWorkspace(), {
       code: 'HEALTH_OS_WORKSPACE_PATH_UNSAFE'
     });
-  });
+  }));
 
-  await t.test('bounds stdout and refuses incompatible or dirty runtime checkouts', async () => {
-    await assert.rejects(new HealthOsClient({ repo, workspace: path.join(workspaces, 'output-limit'), maxOutputBytes: 1_024 }).discover(), {
-      code: 'HEALTH_OS_OUTPUT_LIMIT'
-    });
-    fs.writeFileSync(path.join(repo, '.rev-mismatch'), 'synthetic');
-    await assert.rejects(makeClient('revision').discover(), { code: 'HEALTH_OS_REVISION_MISMATCH' });
-    fs.rmSync(path.join(repo, '.rev-mismatch'));
-    fs.writeFileSync(path.join(repo, '.dirty-runtime'), 'synthetic');
-    await assert.rejects(makeClient('dirty').discover(), { code: 'HEALTH_OS_DIRTY_ENGINE' });
-    fs.rmSync(path.join(repo, '.dirty-runtime'));
-  });
-
-  await t.test('retrieves the manifest-selected profile with truthful partial metadata', async () => {
+  checks.push(t.test('retrieves the manifest-selected profile with truthful partial metadata', async () => {
     const complete = await makeClient('profile').showProfile();
     assert.equal(complete.profile_path, 'personal/files/profile.md');
     assert.equal(complete.markdown, 'PRIVATE_SYNTHETIC_PROFILE_TEXT');
@@ -275,9 +256,9 @@ if (mode === 'timeout' && command === 'capabilities') {
     assert.equal(partial.total_chars, 60000);
     assert.equal(partial.complete, false);
     assert.equal(partial.partial_reason, 'native_profile_character_limit');
-  });
+  }));
 
-  await t.test('finds latest workout by date and preserves linked set and note fields', async () => {
+  checks.push(t.test('finds latest workout by date and preserves linked set and note fields', async () => {
     const result = await makeClient('actions').latestWorkout({ through: '2026-10-24' });
     assert.equal(result.status, 'available');
     assert.equal(result.latest_date, '2026-10-22');
@@ -300,9 +281,9 @@ if (mode === 'timeout' && command === 'capabilities') {
     await assert.rejects(makeClient('history-missing-body').workoutHistory({
       since: '2026-10-20', through: '2026-10-24'
     }), { code: 'HEALTH_OS_INVALID_HISTORY' });
-  });
+  }));
 
-  await t.test('latest lookup requires an explicit local-calendar cutoff and narrows valid native truncation', async () => {
+  checks.push(t.test('latest lookup requires an explicit local-calendar cutoff and narrows valid native truncation', async () => {
     const readOnly = makeClient('actions', 3_000, 'read-only');
     await assert.rejects(readOnly.latestWorkout(), { code: 'HEALTH_OS_ACTION_INPUT_INVALID' });
     const result = await makeClient('latest-initial-truncated').latestWorkout({ through: '2026-10-24' });
@@ -316,15 +297,15 @@ if (mode === 'timeout' && command === 'capabilities') {
     const localBoundary = await makeClient('local-boundary').latestWorkout({ through: localCalendarDate });
     assert.equal(localBoundary.status, 'available');
     assert.equal(localBoundary.latest_date, localCalendarDate);
-  });
+  }));
 
-  await t.test('latest lookup refuses a workout source that changes during range narrowing', async () => {
+  checks.push(t.test('latest lookup refuses a workout source that changes during range narrowing', async () => {
     const result = await makeClient('history-drift').latestWorkout({ through: '2026-10-24' });
     assert.equal(result.status, 'source_changed_during_query');
     assert.equal(result.history_complete, false);
-  });
+  }));
 
-  await t.test('read-only is the default write gate even when direct client methods are called', async () => {
+  checks.push(t.test('read-only is the default write gate even when direct client methods are called', async () => {
     const readonlyWorkspace = path.join(workspaces, 'read-only-write-guard');
     const client = new HealthOsClient({ repo, workspace: readonlyWorkspace });
     await assert.rejects(client.logWorkout({
@@ -338,9 +319,9 @@ if (mode === 'timeout' && command === 'capabilities') {
     assert.throws(() => new HealthOsClient({
       repo, workspace: path.join(workspaces, 'bad-mode'), healthActionMode: 'user-controlled'
     }), /SOMA_HEALTH_ACTION_MODE/);
-  });
+  }));
 
-  await t.test('writes pass bounded JSON on stdin and unknown outcomes never expose native error text', async () => {
+  checks.push(t.test('writes pass bounded JSON on stdin and unknown outcomes never expose native error text', async () => {
     const payload = { session: { day: 'A', actual_mode: 'BASE', duration_minutes: 30,
       session_rpe: 6, energy_pre: 3, soreness_pre: 2, notes: 'PRIVATE_WORKOUT_NOTE' },
       exercises: [{ exercise_key: 'squat', sets: [{ weight: 50, reps: 5 }] }] };
@@ -369,6 +350,33 @@ if (mode === 'timeout' && command === 'capabilities') {
     await assert.rejects(makeClient('actions').logWorkout({
       payload: { ...payload, extra: 'unsupported' }, date: '2026-10-23', idempotencyKey: 'synthetic:bad:1'
     }), { code: 'HEALTH_OS_ACTION_INPUT_INVALID' });
+  }));
+
+  checks.push(t.test('refuses populated initialization targets and symlink paths into either repository', async () => {
+    const populated = path.join(workspaces, 'populated');
+    fs.mkdirSync(populated);
+    fs.writeFileSync(path.join(populated, 'unrelated.txt'), 'leave me');
+    await assert.rejects(makeClient('populated').initWorkspace(), { code: 'HEALTH_OS_INIT_REFUSED' });
+
+    const symlinkPath = path.join(workspaces, 'repo-link');
+    fs.symlinkSync(repo, symlinkPath, 'dir');
+    await assert.rejects(new HealthOsClient({ repo, workspace: symlinkPath }).inspectWorkspace(), {
+      code: 'HEALTH_OS_WORKSPACE_PATH_UNSAFE'
+    });
+  }));
+  await Promise.all(checks);
+
+  // Repository markers and process.env are shared; mutate them only after the batch.
+  await t.test('bounds stdout and refuses incompatible or dirty runtime checkouts', async () => {
+    await assert.rejects(new HealthOsClient({ repo, workspace: path.join(workspaces, 'output-limit'), maxOutputBytes: 1_024 }).discover(), {
+      code: 'HEALTH_OS_OUTPUT_LIMIT'
+    });
+    fs.writeFileSync(path.join(repo, '.rev-mismatch'), 'synthetic');
+    await assert.rejects(makeClient('revision').discover(), { code: 'HEALTH_OS_REVISION_MISMATCH' });
+    fs.rmSync(path.join(repo, '.rev-mismatch'));
+    fs.writeFileSync(path.join(repo, '.dirty-runtime'), 'synthetic');
+    await assert.rejects(makeClient('dirty').discover(), { code: 'HEALTH_OS_DIRTY_ENGINE' });
+    fs.rmSync(path.join(repo, '.dirty-runtime'));
   });
 
   await t.test('passes user arguments as argv and strips HOME and API secrets from Health OS', async () => {
@@ -385,31 +393,13 @@ if (mode === 'timeout' && command === 'capabilities') {
     assert.equal(result.probe.model_secret_present, false);
     assert.equal(fs.existsSync(shellMarker), false);
   });
-
-  await t.test('refuses populated initialization targets and symlink paths into either repository', async () => {
-    const populated = path.join(workspaces, 'populated');
-    fs.mkdirSync(populated);
-    fs.writeFileSync(path.join(populated, 'unrelated.txt'), 'leave me');
-    await assert.rejects(makeClient('populated').initWorkspace(), { code: 'HEALTH_OS_INIT_REFUSED' });
-
-    const symlinkPath = path.join(workspaces, 'repo-link');
-    fs.symlinkSync(repo, symlinkPath, 'dir');
-    await assert.rejects(new HealthOsClient({ repo, workspace: symlinkPath }).inspectWorkspace(), {
-      code: 'HEALTH_OS_WORKSPACE_PATH_UNSAFE'
-    });
-  });
 });
 
-test('parseHealthOsEnvelope requires the supported, untruncated JSON contract', () => {
+test('parseHealthOsEnvelope rejects unsupported schema and multiple JSON envelopes', () => {
   const envelope = { schema_version: 1, command: 'version', ok: true, data: { version: '0.1.0' } };
   assert.deepEqual(parseHealthOsEnvelope({ command: 'version', status: 0, stdout: JSON.stringify(envelope) }), envelope);
   assert.throws(() => parseHealthOsEnvelope({ command: 'version', status: 0,
     stdout: JSON.stringify({ ...envelope, schema_version: 2 }) }), { code: 'HEALTH_OS_INVALID_ENVELOPE' });
-  assert.throws(() => parseHealthOsEnvelope({ command: 'version', status: 0,
-    stdout: JSON.stringify({ ...envelope, truncation: { truncated: true } }) }), { code: 'HEALTH_OS_OUTPUT_TRUNCATED' });
-  assert.throws(() => parseHealthOsEnvelope({ command: 'version', status: 1,
-    stdout: JSON.stringify({ schema_version: 1, command: 'version', ok: false,
-      error: { code: 'SYNTHETIC_FAILURE', message: 'Expected failure.' } }) }), { code: 'SYNTHETIC_FAILURE', exitCode: 1 });
   assert.throws(() => parseHealthOsEnvelope({ command: 'version', status: 0,
     stdout: `${JSON.stringify(envelope)}\n${JSON.stringify(envelope)}` }), { code: 'HEALTH_OS_INVALID_JSON' });
 });

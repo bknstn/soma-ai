@@ -67,13 +67,13 @@ The deterministic Health OS CLI has no npm runtime dependencies. Hermes is an ex
 npm test
 ```
 
-Without `HEALTH_OS_REPO`, the pinned integration test is skipped. Set it to the compatible checkout to run the full suite, including 15 synthetic observation sets, a `FULL` recovery result, and the blocked-memory review case. `npm run demo` also needs this variable and uses its own temporary synthetic workspace:
+`npm test` always runs the local suite, independently of configured integration paths. Run the pinned Health OS integration separately, including 15 synthetic observation sets, a `FULL` recovery result, and the blocked-memory review case. `npm run demo` is an optional manual example using its own temporary synthetic workspace:
 
 ```sh
-HEALTH_OS_REPO="$HOME/src/health-os-soma" npm test
+HEALTH_OS_REPO="$HOME/src/health-os-soma" npm run test:health-os
 HEALTH_OS_REPO="$HOME/src/health-os-soma" npm run demo
 ```
 
-Neither command uses the configured personal workspace. The integration test and demo remove their temporary workspaces. GitHub Actions runs the same suite with the pinned checkout.
+Neither command uses the configured personal workspace. The integration test and demo remove their temporary workspaces. GitHub Actions runs both test suites and the offline Hermes integration. See [testing](testing.md) for targeted checks and disposable Hermes setup.
 
 See [architecture](architecture.md) for the CLI boundary and response fields, [Hermes setup](hermes.md) for conversation setup, and [privacy](privacy.md) for the workspace and model-provider data flow.

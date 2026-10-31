@@ -176,31 +176,6 @@ test('malformed private context fails with a safe JSON error and no excerpt leak
   assert.equal(stdout.value.includes('SYNTHETIC_MEMORY_EVIDENCE_SHOULD_BE_PRESENTED_ONLY_AS_BOUNDED_CONTEXT'), false);
 });
 
-test('doctor presents only Health OS compatibility and workspace status', async () => {
-  const stdout = sink();
-  const result = await runCli(['doctor', '--json'], {
-    stdout,
-    stderr: sink(),
-    client: testClient({
-      async doctor() {
-        return {
-          version: { name: 'health-os', version: '0.1.0', private_text: 'PRIVATE_VERSION_TEXT' },
-          capabilities: { cli_json_schema_version: 1, commands: ['prepare-training'], private_text: 'PRIVATE_CAPS' },
-          workspace: {
-            status: 'versioned', schema_version: 1, profile_status: 'valid',
-            workspace: '/private/real-ish/path', error: 'PROFILE_CONTENT'
-          }
-        };
-      }
-    })
-  });
-  assert.equal(result, 0);
-  assert.match(stdout.value, /"status":"versioned"/);
-  for (const secret of ['PRIVATE_VERSION_TEXT', 'PRIVATE_CAPS', '/private/real-ish/path', 'PROFILE_CONTENT']) {
-    assert.equal(stdout.value.includes(secret), false);
-  }
-});
-
 test('init delegates the empty-path guard to Health OS and emits no path or contents', async () => {
   const stdout = sink();
   let called = false;

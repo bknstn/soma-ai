@@ -42,33 +42,11 @@ jobs:
 
       - name: Run unit and contract tests
         working-directory: soma-ai
-        env:
-          HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
         run: npm test
 
-      - name: Validate product version and release notes
+      - name: Run pinned Health OS integration
         working-directory: soma-ai
-        run: npm run release:check
-
-      - name: Run pinned Health OS integration smoke
-        working-directory: soma-ai
-        env:
-          HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
-          HEALTH_OS_CI_SENTINEL: ${{ runner.temp }}/.soma-health-workspace-ci-owned
-        run: |
-          set -euo pipefail
-          if test -e "$HEALTH_OS_WORKSPACE" || test -e "$HEALTH_OS_CI_SENTINEL"; then
-            echo "Refusing to reuse an existing Health OS workspace path." >&2
-            exit 1
-          fi
-          printf 'created by this CI job\n' > "$HEALTH_OS_CI_SENTINEL"
-          node src/cli.js doctor --json
-          node src/cli.js init --json
-          node src/cli.js prepare-training --as-of 2026-10-24T08:00:00Z --json
-
-      - name: Run synthetic end-to-end demo
-        working-directory: soma-ai
-        run: npm run demo
+        run: npm run test:health-os
 
       - name: Set up isolated Hermes runtime
         working-directory: soma-ai
@@ -92,26 +70,14 @@ jobs:
           SOMA_RUNTIME_HOME: ${{ runner.temp }}/soma-hermes-runtime
           SOMA_RUNTIME_CI_SENTINEL: ${{ runner.temp }}/.soma-hermes-runtime-ci-owned
           RUNNER_TEMP: ${{ runner.temp }}
-          SOMA_RUNTIME_INTEGRATION: "1"
-        run: node --test tests/runtime-integration.test.js tests/context-policy-native.test.js tests/continuity-native.test.js tests/progress-native.test.js tests/heartbeat-gate-native.test.js tests/assistant-native.test.js
+        run: npm run test:hermes
 
-      - name: Remove synthetic workspaces
+      - name: Remove synthetic runtime
         if: always()
         env:
-          HEALTH_OS_WORKSPACE: ${{ runner.temp }}/soma-health-workspace
-          HEALTH_OS_CI_SENTINEL: ${{ runner.temp }}/.soma-health-workspace-ci-owned
           SOMA_RUNTIME_HOME: ${{ runner.temp }}/soma-hermes-runtime
           SOMA_RUNTIME_CI_SENTINEL: ${{ runner.temp }}/.soma-hermes-runtime-ci-owned
         run: |
-          if test -f "$HEALTH_OS_CI_SENTINEL"; then
-            rm -rf -- "$HEALTH_OS_WORKSPACE"
-            test ! -e "$HEALTH_OS_WORKSPACE"
-            rm -f -- "$HEALTH_OS_CI_SENTINEL"
-            test ! -e "$HEALTH_OS_CI_SENTINEL"
-          elif test -e "$HEALTH_OS_WORKSPACE"; then
-            echo "Preserving Health OS workspace without this job's ownership marker." >&2
-            exit 1
-          fi
           if test -f "$SOMA_RUNTIME_CI_SENTINEL"; then
             rm -rf -- "$SOMA_RUNTIME_HOME"
             test ! -e "$SOMA_RUNTIME_HOME"

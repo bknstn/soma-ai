@@ -177,11 +177,13 @@ class ContinuityTest(unittest.TestCase):
             results = list(pool.map(add, range(2)))
         self.assertEqual(results[0], results[1])
         entry_id = ledger.list()[0]["id"]
-        for i in range(2, feature.MAX_RECEIPTS + 5):
-            ledger.apply("correct", entry_id, f"Synthetic revision {i}", None, f"request-{i}", {"message_id": str(i)}, i-1)
+        # Exercise receipt eviction without hundreds of identical SQLite writes.
+        with patch.object(feature, "MAX_RECEIPTS", 3):
+            for i in range(2, 5):
+                ledger.apply("correct", entry_id, f"Synthetic revision {i}", None, f"request-{i}", {"message_id": str(i)}, i-1)
         db = ledger.connect()
         try:
-            self.assertEqual(db.execute("SELECT count(*) FROM receipts").fetchone()[0], feature.MAX_RECEIPTS)
+            self.assertEqual(db.execute("SELECT count(*) FROM receipts").fetchone()[0], 3)
         finally:
             db.close()
         with self.assertRaises(feature.ContinuityError):

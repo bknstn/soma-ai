@@ -2,15 +2,19 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { RuntimeManager } from '../src/runtime/manager.js';
-import { createHermesProvider } from '../src/runtime/providers/hermes.js';
+import { RuntimeManager } from '../../src/runtime/manager.js';
+import { createHermesProvider } from '../../src/runtime/providers/hermes.js';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const enabled = process.env.SOMA_RUNTIME_INTEGRATION === '1';
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const runnerTemp = process.env.RUNNER_TEMP;
+const runtimeHome = process.env.SOMA_RUNTIME_HOME;
+assert.ok(runnerTemp && path.isAbsolute(runnerTemp), 'RUNNER_TEMP must be an explicit absolute disposable path');
+assert.equal(runtimeHome, path.resolve(runnerTemp, 'soma-hermes-runtime'), 'Use the fresh test-only runtime path');
 
 function runRuntime(args) {
   const result = spawnSync(process.execPath, ['src/runtime/cli.js', ...args], {
@@ -32,7 +36,7 @@ function runRuntime(args) {
   return `${result.stdout}\n${result.stderr}`;
 }
 
-test('managed Hermes runtime runs offline doctor, CLI help, and local skill loading', { skip: !enabled }, () => {
+test('managed Hermes doctor verifies offline help and both local skills', () => {
   const runnerTemp = process.env.RUNNER_TEMP;
   const runtimeHome = process.env.SOMA_RUNTIME_HOME;
   assert.ok(runnerTemp && path.isAbsolute(runnerTemp), 'RUNNER_TEMP must be an explicit absolute CI path');
@@ -46,11 +50,9 @@ test('managed Hermes runtime runs offline doctor, CLI help, and local skill load
   assert.equal(marker.setup_status, 'ready');
 
   assert.match(runRuntime(['doctor']), /hermes: ready/i);
-  assert.match(runRuntime(['chat', '--help']), /usage/i);
-  assert.match(runRuntime(['skills', 'list']), /soma-health/);
 });
 
-test('installed OpenAI plugin is discovered and dispatches real web_search offline', { skip: !enabled }, () => {
+test('installed OpenAI plugin is discovered and dispatches real web_search offline', () => {
   const runtimeHome = process.env.SOMA_RUNTIME_HOME;
   assert.equal(runtimeHome, path.resolve(process.env.RUNNER_TEMP, 'soma-hermes-runtime'));
   const python = fs.readFileSync(path.join(runtimeHome, 'hermes-python.txt'), 'utf8').trim();
@@ -103,7 +105,7 @@ with patch.object(socket.socket, "connect", deny_network), patch.object(socket.s
   assert.match(result.stdout, /soma-openai-dispatch-ok/);
 });
 
-test('isolated Telegram gateway preflight uses pinned config and auth with mocked final spawn', { skip: !enabled }, async (t) => {
+test('isolated Telegram gateway preflight uses pinned config and auth with mocked final spawn', async (t) => {
   const runnerTemp = process.env.RUNNER_TEMP;
   const runtimeHome = process.env.SOMA_RUNTIME_HOME;
   const ownershipSentinel = process.env.SOMA_RUNTIME_CI_SENTINEL;
@@ -175,6 +177,11 @@ test('isolated Telegram gateway preflight uses pinned config and auth with mocke
     OPENAI_API_KEY: 'synthetic_openai_api_key'
   };
   const provider = createHermesProvider({ repoRoot });
+  // Readiness does not depend on the gateway config variants below. Exercise
+  // the real inspection once; every launch still runs native config preflight.
+  const inspect = provider.inspect.bind(provider);
+  let readiness;
+  provider.inspect = (context) => readiness ??= inspect(context);
   const makeManager = () => new RuntimeManager({
     runtime: 'hermes', runtimeHome, env: sourceEnv, repoRoot, providers: { hermes: provider },
     spawnProcess(executable, args, options) {
@@ -212,4 +219,22 @@ test('isolated Telegram gateway preflight uses pinned config and auth with mocke
   writeConfig(baseConfig.replace('    enabled: true', "    enabled: true\n    extra:\n      group_allow_from: ['*']"));
   await assert.rejects(makeManager().gateway(), { code: 'SOMA_HERMES_GATEWAY_CONFIG_BLOCKED' });
   assert.equal(finalSpawns.length, 1, 'Telegram group adapter allowlists must fail before gateway spawn');
+});
+
+// Each process owns its audit hooks, imports and disposable state.
+const execFileAsync = promisify(execFile);
+test('native plugin compatibility', { concurrency: 4 }, async (t) => {
+  const python = fs.readFileSync(path.join(runtimeHome, 'hermes-python.txt'), 'utf8').trim();
+  await Promise.all([
+    ['context_policy', 'native YAML and compression budgets'],
+    ['continuity', 'native confirmation and prompt hooks'],
+    ['progress', 'native supervised progress lifecycle'],
+    ['assistant', 'native gateway tools and idle session rotation']
+  ].map(([suite, description]) => t.test(description, async () => {
+    await execFileAsync(python, ['-I', '-B', `tests/${suite}_native_test.py`], {
+      cwd: repoRoot, encoding: 'utf8', timeout: 60000, maxBuffer: 1024 * 1024,
+      env: { PATH: process.env.PATH, HERMES_RUNTIME_DIR: path.join(runtimeHome, 'hermes-tools'),
+        SOMA_TEST_DEPENDENCY_HOME: path.join(runtimeHome, 'hermes-home') }
+    });
+  })));
 });

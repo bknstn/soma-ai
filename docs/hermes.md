@@ -164,4 +164,4 @@ node src/cli.js prepare-training --as-of 2026-10-24T08:00:00+02:00 --json
 
 ## Verification
 
-`npm test` checks the runtime manager, provider boundary, and synthetic Health OS integration. CI installs into a new temporary `SOMA_RUNTIME_HOME`, runs runtime doctor, exercises the actual Hermes help and native skill loader without making a model request, and removes the runtime home even after failure. No live model account or provider key is used in tests.
+`npm test` checks the runtime manager, provider boundary, and synthetic subprocess contracts. `npm run test:health-os` checks the pinned Health OS integration. CI installs into a new temporary `SOMA_RUNTIME_HOME` and runs `npm run test:hermes`, exercising doctor, actual Hermes help, native skill loading and plugin APIs without making a model request. It removes the runtime home even after failure. No live model account or provider key is used in tests. See [testing](testing.md).
