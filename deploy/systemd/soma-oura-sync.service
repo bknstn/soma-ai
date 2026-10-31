@@ -1,0 +1,17 @@
+# Replace ACCOUNT and paths privately. The env file contains paths, TZ and the
+# operator gate, not provider secrets; SOMA_HEALTH_ENV_FILE points to those.
+[Unit]
+Description=SOMA daily Oura data refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/ACCOUNT/soma/config/oura-sync.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/ACCOUNT/soma/source/soma-ai
+ExecStart=/usr/bin/node /home/ACCOUNT/soma/source/soma-ai/scripts/sync-oura-day.js
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true

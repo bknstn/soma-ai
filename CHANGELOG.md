@@ -5,6 +5,12 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+### Added
+
+- An operator-only single-day Oura refresh command with an isolated credential
+  child, native idempotency checks, exact observation read-back, safe status output
+  and optional daily systemd templates. Training preparation stays read-only.
+
 ### Fixed
 
 - Keep conversational health replies focused on planned activities and practical

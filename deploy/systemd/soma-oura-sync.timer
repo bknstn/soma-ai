@@ -1,0 +1,11 @@
+# Choose the timezone and time privately, before the first daily report.
+[Unit]
+Description=Refresh SOMA wearable data each morning
+
+[Timer]
+OnCalendar=*-*-* 07:30:00 Etc/UTC
+Persistent=true
+Unit=soma-oura-sync.service
+
+[Install]
+WantedBy=timers.target

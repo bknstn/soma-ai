@@ -93,4 +93,8 @@ Adapt [the systemd user-service template](../deploy/systemd/hermes-soma.service)
 
 Deployment preparation does not authorize reading or migrating existing personal records. Any data migration requires a separate explicit scope, a supported import interface, and synthetic validation first. Keep source inventories, mappings, backups, and cutover plans in private operator notes.
 
+For an explicitly authorized Oura refresh or history repair, use the separate
+[operator sync workflow](wearable-sync.md). Training preparation reads stored data;
+schedule data refresh separately when reports must use current provider readings.
+
 Remove task-created temporary scripts, probes, staging files, and validation copies on every host after each task. Preserve implementation, requested deliverables, persistent runtime state, user data, and backups covered by an agreed retention plan.

@@ -17,6 +17,7 @@
     "runtime:provider-deps": "node src/runtime/cli.js provider-deps",
     "chat": "node src/runtime/cli.js chat",
     "gateway": "node src/runtime/cli.js gateway",
+    "health:sync": "node scripts/sync-oura-day.js",
     "vps:ssh": "sh scripts/vps-ssh.sh",
     "demo": "node examples/demo.mjs",
     "release:check": "node scripts/check-release.js",
