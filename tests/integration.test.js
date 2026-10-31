@@ -105,13 +105,26 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
     assert.equal(empty.workout.scheduled_only, true);
     assert.ok(empty.gaps.some((gap) => gap.code === 'recovery_missing'));
 
-    for (let daysAgo = 14; daysAgo >= 1; daysAgo -= 1) {
+    runHealthOs(cliPath, 'ingest-wearable-observations', workspace,
+      observationFor(asOfDate, { current: true }), ['--input-json', '--idempotency-key', `synthetic-integration:${asOfDate}`]);
+    for (let daysAgo = 1; daysAgo <= 14; daysAgo += 1) {
       const date = dateOffset(asOfDate, -daysAgo);
       runHealthOs(cliPath, 'ingest-wearable-observations', workspace,
         observationFor(date), ['--input-json', '--idempotency-key', `synthetic-integration:${date}`]);
+      if (daysAgo === 4 || daysAgo === 13) {
+        const insufficient = await client.prepareTraining({ asOf });
+        assert.equal(insufficient.recovery.decision.status, 'unavailable');
+        assert.equal(insufficient.workout.scheduled_only, true);
+        assert.ok(insufficient.recovery.decision.reasons.includes('baseline_coverage_insufficient'));
+        assert.equal(insufficient.recovery.physical_metrics.hrv.value, 53);
+        assert.equal(insufficient.recovery.physical_metrics.resting_hr.value, 58);
+        for (const metric of ['hrv', 'resting_hr']) {
+          assert.equal(insufficient.recovery.baselines[metric].observed_days, daysAgo,
+            'the current observation must not count as a prior baseline day');
+          assert.equal(insufficient.recovery.baselines[metric].min_observed_days, 14);
+        }
+      }
     }
-    runHealthOs(cliPath, 'ingest-wearable-observations', workspace,
-      observationFor(asOfDate, { current: true }), ['--input-json', '--idempotency-key', `synthetic-integration:${asOfDate}`]);
 
     const available = await client.prepareTraining({ asOf });
     assert.equal(available.recovery.decision.status, 'available');

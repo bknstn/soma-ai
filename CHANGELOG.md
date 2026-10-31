@@ -5,6 +5,21 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep conversational health replies focused on planned activities and practical
+  constraints. Attribute wearable measurements inline; show local source lists,
+  card-validation details and recovery diagnostics only when requested.
+- Clarify the pinned recovery baseline policy and verify insufficient coverage
+  with current measurements present, including exclusion of the current day.
+
+### Upgrade
+
+- Rerun managed runtime setup with the explicit `SOMA_RUNTIME_HOME` to refresh the
+  response policy. Existing health skills are seeded only when missing: review
+  their differences against the bundled versions and merge the presentation
+  changes while preserving operator customizations. Restart chat or the gateway.
+
 ## [0.2.1] - 2026-10-28
 
 ### Fixed

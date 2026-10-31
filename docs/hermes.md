@@ -34,8 +34,9 @@ precedence. Written and spoken versions of an answer use the same language.
 
 SOMA replies briefly by default across chat, voice, reports and notifications. Simple
 answers use one to three short sentences; reports use a compact list or table. Full
-explanations are given when requested. Essential units, source references, constraints
-and uncertainty stay visible. When an action is unavailable, SOMA states the limitation
+explanations are given when requested. Essential units, practical constraints
+and relevant uncertainty stay visible. Wearable values have inline provider attribution;
+local source lists and validation diagnostics are given only when requested. When an action is unavailable, SOMA states the limitation
 and its known reason directly, without claiming success or inventing a cause.
 
 For an existing runtime, rerun `npm run runtime:setup` with its explicit
@@ -44,7 +45,10 @@ response-language and response-style blocks in `hermes-home/SOUL.md` and preserv
 outside those blocks. Older personas receive missing blocks once. Custom instructions
 outside the managed blocks remain in place; conflicting verbosity instructions there
 need an operator review. Existing installed health skills are seeded only when missing;
-the managed style policy also applies to their reports. These are
+compare them with the bundled `skills/soma-health/SKILL.md` and
+`skills/soma-health-actions/SKILL.md` and merge updated instructions while preserving
+operator customizations. Setup does not perform that merge. The managed style policy
+also applies to their reports. These are
 model instructions; offline tests verify installation and preservation, not live
 model style/language compliance or speech-recognition accuracy.
 
