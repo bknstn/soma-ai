@@ -5,6 +5,8 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-04
+
 ### Added
 
 - An operator-only single-day Oura refresh command with an isolated credential
@@ -13,6 +15,11 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ### Fixed
 
+- Give SOMA a natural, respectful and gently friendly voice with an attentive
+  partner persona: focused curiosity, care without judgment, respect for reported
+  feelings alongside measurements, clear uncertainty, useful initiative and
+  familiarity at the user's pace. Keep replies concise and existing safety,
+  consent and notification boundaries in place.
 - Keep conversational health replies focused on planned activities and practical
   constraints. Attribute wearable measurements inline; show local source lists,
   card-validation details and recovery diagnostics only when requested.
