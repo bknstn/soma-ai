@@ -1,6 +1,6 @@
 # Getting started
 
-SOMA's first workflow prepares a training session from a local Health OS workspace. The CLI uses Node.js; it does not need an LLM API key. Hermes is the intended conversation layer and is configured separately in the [Hermes guide](hermes.md).
+SOMA's first workflow prepares a training session from a local Health OS workspace. The CLI uses Node.js and works without an LLM API key. For conversation, start with the [first-run guide](first-run.md) to choose model, search and voice providers.
 
 ## Requirements
 

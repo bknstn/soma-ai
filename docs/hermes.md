@@ -1,5 +1,9 @@
 # Hermes runtime
 
+Use the [first-run guide](first-run.md) to install Hermes and choose the
+conversation, search and voice capabilities. This page describes the runtime
+boundary and the managed Telegram gateway.
+
 SOMA includes Hermes as its first swappable conversation runtime. The source is the `third_party/hermes-agent` Git submodule, pinned to upstream release **v0.22.5** at commit [`bf0203a794a07aac3ff764972ab9087baa4e4f4e`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e). The checked-in [runtime manifest](../runtimes/hermes/manifest.json) records the source and isolated install contract. Do not advance the submodule with `git submodule update --remote`; review a runtime update as a pinned source change.
 
 ## Requirements and checkout
@@ -94,33 +98,19 @@ Use the provider selector again to change providers. That changes the LLM connec
 
 ## OpenAI web search
 
-`runtime:setup` installs SOMA's `soma-openai-search` Hermes plugin and selects
-`web.search_backend: soma-openai` when no search backend is already configured.
-It uses the same `OPENAI_API_KEY` as OpenAI chat, including keys entered through
+`runtime:setup` installs SOMA's `soma-openai-search` Hermes plugin. Select it
+explicitly with `npm run runtime:capabilities -- --search soma-openai`.
+It can use the same `OPENAI_API_KEY` as OpenAI chat, including keys entered through
 the managed provider prompt; no separate search key or Codex OAuth login is required.
 The pinned Hermes `openai-native` backend requires Codex OAuth and is a different integration.
 
 For an existing runtime, rerun `npm run runtime:setup` with its explicit
-`SOMA_RUNTIME_HOME`, then restart chat or the gateway. Setup refreshes the managed
-plugin and preserves unrelated configuration, an explicitly chosen backend, and an
-explicitly disabled plugin. To switch an existing search selection to OpenAI, merge
-this into the private `hermes-home/config.yaml` (keep existing plugin entries):
-
-```yaml
-web:
-  search_backend: soma-openai
-  keyless_rescue: false
-  openai:
-    model: gpt-6-astra
-plugins:
-  enabled:
-    - soma-openai-search
-```
-
-The search model defaults to `gpt-6-astra`; `web.openai.model` can select another
+`SOMA_RUNTIME_HOME` to refresh the installed plugin, then restart chat or the gateway.
+The search model defaults to `gpt-6-astra`. In the private `hermes-home/config.yaml`,
+`web.openai.model` can select another
 model that supports the Responses API `web_search` tool. The conversation model
 is configured independently. If platform toolsets were customized, include `web`
-for CLI/Telegram. Search returns cited source URLs and a summary for Hermes to
+for CLI/Telegram. The capability command checks this exposure. Search returns cited source URLs and a summary for Hermes to
 use with clickable links. It does not implement arbitrary page extraction;
 `web_extract` keeps its separate Hermes backend.
 

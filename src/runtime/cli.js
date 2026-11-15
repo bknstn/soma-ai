@@ -14,14 +14,19 @@ Commands:
   chat       Start the selected runtime's local interactive chat
   gateway    Start the managed messaging gateway (Telegram only)
   configure  Open the selected runtime's model provider configuration
+  capabilities  Check or select search, voice input, and spoken replies
   context    Inspect context policy; --file PATH applies a validated JSON policy
-  provider-deps <name>  Install an optional SDK for anthropic, bedrock, or vertex
+  provider-deps <name>  Install anthropic, bedrock, vertex, stt-whisper, or edge-tts
   skills     List locally installed skills (read-only)
 
 Options:
   --runtime NAME       Agent runtime (default: hermes, or SOMA_RUNTIME)
   --runtime-home PATH  Isolated runtime state directory (or SOMA_RUNTIME_HOME)
-  --json               Emit a versioned response for setup, doctor, or context
+  --json               Emit a versioned response for setup, doctor, context, or capabilities
+  --search BACKEND     off | soma-openai | openai-native | tavily (capabilities only)
+  --voice-input ENGINE off | local | groq | openai (capabilities only)
+  --spoken-replies TTS off | edge | openai (capabilities only)
+  --preview            Show proposed capability states before applying choices
   --file PATH          Context policy patch (context only)
   --context-window N  Preview context budgets for an explicit window (context only)
   --help               Show this help
@@ -30,6 +35,14 @@ Options:
 Chat smoke check:
   node src/runtime/cli.js chat --help
 `;
+
+const CAPABILITY_OPTIONS = {
+  '--search': ['off', 'soma-openai', 'openai-native', 'tavily'],
+  '--voice-input': ['off', 'local', 'groq', 'openai'],
+  '--spoken-replies': ['off', 'edge', 'openai']
+};
+const COMMANDS = ['setup', 'doctor', 'chat', 'gateway', 'configure', 'capabilities', 'context', 'provider-deps', 'skills'];
+const JSON_COMMANDS = ['setup', 'doctor', 'capabilities', 'context'];
 
 class RuntimeCliError extends Error {
   constructor(message, code = 'SOMA_RUNTIME_USAGE', exitCode = 2) {
@@ -69,9 +82,8 @@ function parseArgs(argv) {
     index += 1;
   }
 
-  if (!command) throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, context, provider-deps, or skills.');
-  if (!['setup', 'doctor', 'chat', 'gateway', 'configure', 'context', 'provider-deps', 'skills'].includes(command)) {
-    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, context, provider-deps, or skills.');
+  if (!COMMANDS.includes(command)) {
+    throw new RuntimeCliError('Choose a runtime command. Run --help for the available commands.');
   }
   if (command === 'chat') {
     if (extra.length === 1 && (extra[0] === '--help' || extra[0] === '-h')) options.chatHelp = true;
@@ -82,9 +94,22 @@ function parseArgs(argv) {
     }
   } else if (command === 'provider-deps') {
     if (extra.length !== 1 || !/^[a-z][a-z0-9-]{0,39}$/.test(extra[0])) {
-      throw new RuntimeCliError('Use `provider-deps <name>` to install an explicitly supported model SDK.');
+      throw new RuntimeCliError('Use `provider-deps <name>` to install an explicitly supported dependency.');
     }
     options.providerName = extra[0];
+  } else if (command === 'capabilities') {
+    const previewCount = extra.filter((token) => token === '--preview').length;
+    if (previewCount > 1) throw new RuntimeCliError('--preview may be supplied only once.');
+    const argumentsWithValues = extra.filter((token) => token !== '--preview');
+    const selections = new Map();
+    for (let index = 0; index < argumentsWithValues.length; index += 2) {
+      const [flag, value] = argumentsWithValues.slice(index, index + 2);
+      if (!Object.hasOwn(CAPABILITY_OPTIONS, flag) || !CAPABILITY_OPTIONS[flag].includes(value) || selections.has(flag)) {
+        throw new RuntimeCliError('Invalid or repeated capability selection. Run --help for supported backends.');
+      }
+      selections.set(flag, value);
+    }
+    options.selections = [...(previewCount ? ['--preview'] : []), ...[...selections].flat()];
   } else if (extra.length > 0) {
     throw new RuntimeCliError(`${command} does not accept additional arguments.`);
   }
@@ -98,8 +123,8 @@ function parseArgs(argv) {
     }
     options.contextWindow = Number(options.contextWindow);
   }
-  if (options.json && !['setup', 'doctor', 'context'].includes(command)) {
-    throw new RuntimeCliError('--json is available only with setup, doctor, or context.');
+  if (options.json && !JSON_COMMANDS.includes(command)) {
+    throw new RuntimeCliError('--json is available only with setup, doctor, capabilities, or context.');
   }
   return { help: false, command, ...options };
 }
@@ -170,12 +195,18 @@ export async function runRuntimeCli(argv, dependencies = {}) {
       response(command, json, data, `${JSON.stringify(data, null, 2)}\n`, stdout);
       return 0;
     }
+    if (command === 'capabilities') {
+      const data = await manager.capabilities(parsed.selections);
+      const lines = Object.entries(data.capabilities).map(([name, item]) =>
+        `${name}: ${item.provider} (${item.status})${item.detail ? `. ${item.detail}` : ''}`);
+      response(command, json, data, `${data.preview ? 'Preview\n' : ''}${lines.join('\n')}\n`, stdout);
+      return 0;
+    }
     if (command === 'chat') return await (parsed.chatHelp ? manager.help() : manager.chat());
     if (command === 'gateway') return await manager.gateway();
     if (command === 'configure') return await manager.configure();
     if (command === 'provider-deps') return await manager.installProviderDependencies(parsed.providerName);
     if (command === 'skills') return await manager.skills({ action: 'list' });
-    throw new RuntimeCliError('Choose setup, doctor, chat, gateway, configure, context, provider-deps, or skills.');
   } catch (error) {
     return fail(command, json, error, stdout, stderr);
   }

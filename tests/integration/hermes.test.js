@@ -16,7 +16,7 @@ const runtimeHome = process.env.SOMA_RUNTIME_HOME;
 assert.ok(runnerTemp && path.isAbsolute(runnerTemp), 'RUNNER_TEMP must be an explicit absolute disposable path');
 assert.equal(runtimeHome, path.resolve(runnerTemp, 'soma-hermes-runtime'), 'Use the fresh test-only runtime path');
 
-function runRuntime(args) {
+function runRuntime(args, { credentials = {}, status = 0 } = {}) {
   const result = spawnSync(process.execPath, ['src/runtime/cli.js', ...args], {
     cwd: repoRoot,
     env: {
@@ -25,14 +25,15 @@ function runRuntime(args) {
       CI: process.env.CI,
       SOMA_RUNTIME: 'hermes',
       SOMA_RUNTIME_HOME: process.env.SOMA_RUNTIME_HOME,
-      HEALTH_OS_REPO: process.env.HEALTH_OS_REPO
+      HEALTH_OS_REPO: process.env.HEALTH_OS_REPO,
+      ...credentials
     },
     encoding: 'utf8',
     timeout: 120_000,
     maxBuffer: 1024 * 1024
   });
   assert.ifError(result.error);
-  assert.equal(result.status, 0, `runtime ${args.join(' ')} failed with ${result.status}: ${result.stderr.slice(0, 500)}`);
+  assert.equal(result.status, status, `runtime ${args.join(' ')} failed with ${result.status}: ${result.stderr.slice(0, 500)}`);
   return `${result.stdout}\n${result.stderr}`;
 }
 
@@ -52,9 +53,45 @@ test('managed Hermes doctor verifies offline help and both local skills', () => 
   assert.match(runRuntime(['doctor']), /hermes: ready/i);
 });
 
-test('installed OpenAI plugin is discovered and dispatches real web_search offline', () => {
+test('first-run choices are independent and the selected search plugin dispatches offline', (t) => {
   const runtimeHome = process.env.SOMA_RUNTIME_HOME;
   assert.equal(runtimeHome, path.resolve(process.env.RUNNER_TEMP, 'soma-hermes-runtime'));
+  const config = path.join(runtimeHome, 'hermes-home', 'config.yaml');
+  const original = fs.readFileSync(config);
+  t.after(() => fs.writeFileSync(config, original));
+  const capabilities = (args = [], options) => JSON.parse(runRuntime(['capabilities', '--json', ...args], options));
+  const initial = capabilities().data;
+  assert.equal(initial.capabilities.conversation.provider, 'unselected');
+  for (const capability of ['search', 'voice_input', 'spoken_replies']) {
+    assert.equal(initial.capabilities[capability].status, 'disabled');
+  }
+  fs.appendFileSync(config, '\n# Preserve this synthetic operator note.\nmodel: {provider: openrouter, default: synthetic-model}\n');
+  const mixed = ['--search', 'tavily', '--voice-input', 'groq'];
+  const credentials = { OPENROUTER_API_KEY: 'synthetic-chat', TAVILY_API_KEY: 'synthetic-search', GROQ_API_KEY: 'synthetic-stt' };
+  const beforePreview = fs.readFileSync(config);
+  const preview = capabilities(['--preview', ...mixed], { credentials }).data;
+  assert.equal(preview.preview, true);
+  assert.equal(preview.capabilities.search.provider, 'tavily');
+  assert.deepEqual(fs.readFileSync(config), beforePreview);
+  const applied = capabilities(mixed, { credentials }).data;
+  assert.equal(applied.changed, true);
+  assert.equal(applied.capabilities.conversation.provider, 'openrouter');
+  assert.equal(applied.capabilities.search.status, 'ready');
+  assert.equal(applied.capabilities.voice_input.status, 'ready');
+  assert.equal(applied.capabilities.spoken_replies.status, 'disabled');
+  assert.match(fs.readFileSync(config, 'utf8'), /# Preserve this synthetic operator note\./);
+  assert.equal(capabilities(mixed, { credentials }).data.changed, false);
+  assert.equal(capabilities().data.capabilities.search.status, 'unavailable');
+  const beforeInvalid = fs.readFileSync(config);
+  const invalid = capabilities(['--search', 'openai-native', '--voice-input', 'off'], { status: 1 });
+  assert.match(invalid.error.message, /openai-codex/);
+  assert.deepEqual(fs.readFileSync(config), beforeInvalid);
+  const disabled = capabilities(['--search', 'off'], { credentials }).data;
+  assert.equal(disabled.capabilities.search.status, 'disabled');
+  assert.equal(disabled.capabilities.voice_input.provider, 'groq');
+  assert.equal(capabilities(['--search', 'off']).data.changed, false);
+  const updated = capabilities(['--search', 'soma-openai']).data;
+  assert.equal(updated.capabilities.voice_input.provider, 'groq');
   const python = fs.readFileSync(path.join(runtimeHome, 'hermes-python.txt'), 'utf8').trim();
   const result = spawnSync(python, ['-B', '-c', `
 import hermes_bootstrap

@@ -15,7 +15,8 @@ const GATEWAY_CONFIG_CHECK_TIMEOUT_MS = 20 * 1000;
 const GATEWAY_CONFIG_CHECK_MAX_BYTES = 16 * 1024;
 const CHAT_CREDENTIAL_ENV = [
   'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY',
-  'XAI_API_KEY', 'DEEPSEEK_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY', 'TOGETHER_API_KEY'
+  'XAI_API_KEY', 'DEEPSEEK_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY', 'TOGETHER_API_KEY',
+  'TAVILY_API_KEY', 'VOICE_TOOLS_OPENAI_KEY'
 ];
 const GATEWAY_CREDENTIAL_ENV = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALLOWED_USERS'];
 const HERMES_COMMANDS = {
@@ -27,11 +28,13 @@ const HERMES_COMMANDS = {
 const MODEL_PROVIDER_EXTRAS = new Map([
   ['anthropic', 'anthropic'],
   ['bedrock', 'bedrock'],
-  ['vertex', 'vertex']
+  ['vertex', 'vertex'],
+  ['stt-whisper', 'stt-whisper'],
+  ['edge-tts', 'edge-tts']
 ]);
 
 // Bootstrap only the pinned, isolated interpreter; the helper never resolves model metadata online.
-const CONTEXT_POLICY_RUNNER = `
+const MANAGED_HELPER_RUNNER = `
 import hermes_bootstrap
 import runpy
 import sys
@@ -510,7 +513,7 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
       try { stat = fs.lstatSync(helper); } catch { throw fail('The context policy helper is missing.', 'SOMA_HERMES_CONTEXT_INVALID'); }
       if (!stat.isFile() || stat.isSymbolicLink()) throw fail('The context policy helper is invalid.', 'SOMA_HERMES_CONTEXT_INVALID');
       const python = readPythonPath(context, root.runtime.python_file, root.runtime.runtime_dir);
-      const args = ['-B', '-c', CONTEXT_POLICY_RUNNER, helper];
+      const args = ['-B', '-c', MANAGED_HELPER_RUNNER, helper];
       if (file !== undefined) args.push('--file', file);
       if (contextWindow !== undefined) args.push('--context-window', String(contextWindow));
       let result;
@@ -522,6 +525,40 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
         });
       } catch { throw fail('Could not run the context policy helper.', 'SOMA_HERMES_CONTEXT_INVALID'); }
       return contextPolicyResult(result);
+    },
+    async capabilities({ context, selections }) {
+      sourceFiles(root);
+      const helper = path.resolve(repoRoot, 'runtimes/hermes/capabilities.py');
+      const python = readPythonPath(context, root.runtime.python_file, root.runtime.runtime_dir);
+      const invalid = () => fail('Could not check capabilities. Verify the isolated Hermes configuration.',
+        'SOMA_HERMES_CAPABILITIES_INVALID');
+      let result, payload;
+      try {
+        result = spawnSyncImpl(python, ['-B', '-c', MANAGED_HELPER_RUNNER, helper, ...selections], {
+          cwd: root.sourceRoot, env: context.env, shell: false, encoding: 'utf8',
+          timeout: GATEWAY_CONFIG_CHECK_TIMEOUT_MS, maxBuffer: MAX_CHECK_OUTPUT_BYTES,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+        if (result.error || result.signal || ![0, 2].includes(result.status)) throw invalid();
+        payload = JSON.parse(boundedString(result.stdout, 'SOMA_HERMES_OUTPUT_LIMIT'));
+      } catch { throw invalid(); }
+      if (result.status !== 0) {
+        const messages = {
+          invalid_selection: 'Choose a supported capability backend. Run runtime --help for options.',
+          config_changed: 'Configuration changed during this operation. Retry while configuration is idle.',
+          managed_override: 'A managed Hermes setting overrides the requested change. Review the managed configuration.',
+          native_search_requires_codex: 'OpenAI native search needs an openai-codex conversation model. Choose a different search backend or configure Codex authorization.'
+        };
+        throw fail(Object.hasOwn(messages, payload?.error) ? messages[payload.error] : invalid().message,
+          'SOMA_HERMES_CAPABILITIES_INVALID');
+      }
+      if (payload?.schema_version !== 1 || typeof payload.changed !== 'boolean' || typeof payload.preview !== 'boolean' ||
+          !['conversation', 'search', 'voice_input', 'spoken_replies'].every((name) => {
+            const item = payload.capabilities?.[name];
+            return item && typeof item.provider === 'string' && typeof item.detail === 'string' &&
+              ['ready', 'configured', 'disabled', 'unavailable'].includes(item.status);
+          })) throw invalid();
+      return payload;
     },
     validateLaunch({ action, args }) {
       const allowed = {

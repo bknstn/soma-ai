@@ -398,6 +398,20 @@ export class RuntimeManager {
     return this.#launch('configure', [], { requireHealthConfig: false });
   }
 
+  async capabilities(selections = []) {
+    const context = this.#context({ operation: 'capabilities' });
+    const state = await this.inspect();
+    if (!state.ready) {
+      throw new RuntimeError('Run runtime setup before checking or configuring capabilities.', { code: 'SOMA_RUNTIME_NOT_READY' });
+    }
+    if (typeof this.#provider.capabilities !== 'function') {
+      throw new RuntimeError('The selected runtime does not support capability configuration.', {
+        code: 'SOMA_RUNTIME_CAPABILITIES_UNSUPPORTED', exitCode: 2
+      });
+    }
+    return this.#provider.capabilities({ context, selections });
+  }
+
   async contextPolicy({ file, contextWindow } = {}) {
     const context = this.#context({ operation: 'context-policy' });
     const state = await this.inspect();
@@ -530,7 +544,7 @@ export class RuntimeManager {
       env.HEALTH_OS_WORKSPACE = this.#env.HEALTH_OS_WORKSPACE;
       env.SOMA_HEALTH_ACTION_MODE = healthActionMode;
     }
-    if (operation === 'chat' || operation === 'gateway') {
+    if (operation === 'chat' || operation === 'gateway' || operation === 'capabilities') {
       const credentialEnv = operation === 'gateway'
         ? [...new Set([...(this.#provider.chatCredentialEnv || []), ...(this.#provider.gatewayCredentialEnv || [])])]
         : this.#provider.chatCredentialEnv || [];

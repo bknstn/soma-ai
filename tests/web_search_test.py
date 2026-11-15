@@ -124,13 +124,7 @@ class SearchTest(unittest.TestCase):
 
 class InstallTest(unittest.TestCase):
     def setUp(self):
-        # JSON is a YAML subset. The installed-runtime integration checks Hermes YAML
-        # and Hermes discovery; this substitute keeps unit tests dependency-free.
-        yaml_module = types.ModuleType("hermes_yaml")
-        yaml_module.safe_load = json.loads
-        yaml_module.safe_dump = lambda config, stream, **kwargs: json.dump(config, stream)
-        with patch.dict(sys.modules, {"hermes_yaml": yaml_module}):
-            self.installer = load("soma_install", ROOT / "runtimes/hermes/install-web-search.py")
+        self.installer = load("soma_install", ROOT / "runtimes/hermes/install-web-search.py")
         self.temp = tempfile.TemporaryDirectory(prefix="soma-web-test-")
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
@@ -139,51 +133,25 @@ class InstallTest(unittest.TestCase):
     def test_fresh_install_is_idempotent_and_preserves_settings(self):
         self.installer.install(self.source, self.home)
         config_file = self.home / "config.yaml"
-        config = json.loads(config_file.read_text())
-        self.assertEqual(config["web"]["search_backend"], "soma-openai")
-        self.assertFalse(config["web"]["keyless_rescue"])
-        self.assertEqual(config["plugins"]["enabled"], ["soma-openai-search"])
-        config["model"] = {"provider": "openai-api", "default": "synthetic-model"}
-        config["plugins"]["enabled"].append("other-plugin")
-        config["web"]["search_backend"] = "other-backend"
-        config_file.write_text(json.dumps(config))
+        self.assertFalse(config_file.exists())
+        config = {"web": {"backend": "other-backend"}, "plugins": {"disabled": ["soma-openai-search"]}}
+        original = json.dumps(config)
+        config_file.write_text(original)
         self.installer.install(self.source, self.home)
-        self.assertEqual(json.loads(config_file.read_text()), config)
-        self.assertEqual(config_file.stat().st_mode & 0o777, 0o600)
-        self.assertFalse(list(self.home.glob(".soma-web-*")))
+        self.assertEqual(config_file.read_text(), original)
         target = self.home / "plugins/soma-openai-search/__init__.py"
         self.assertEqual(target.read_bytes(), (self.source / "__init__.py").read_bytes())
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
-    def test_shared_backend_and_disabled_plugin_are_preserved(self):
-        config = {"web": {"backend": "other-backend"}, "plugins": {"disabled": ["soma-openai-search"]}}
-        (self.home / "config.yaml").write_text(json.dumps(config))
-        self.installer.install(self.source, self.home)
-        result = json.loads((self.home / "config.yaml").read_text())
-        self.assertNotIn("search_backend", result["web"])
-        self.assertNotIn("soma-openai-search", result["plugins"]["enabled"])
-
-    def test_symlink_and_invalid_config_are_rejected_without_overwrite(self):
+    def test_plugin_symlink_is_rejected_without_overwrite(self):
         outside = self.home / "untouched"
         outside.write_text("synthetic")
-        config_file = self.home / "config.yaml"
-        config_file.symlink_to(outside)
+        target = self.home / "plugins/soma-openai-search/__init__.py"
+        target.parent.mkdir(parents=True)
+        target.symlink_to(outside)
         with self.assertRaises(ValueError):
             self.installer.install(self.source, self.home)
         self.assertEqual(outside.read_text(), "synthetic")
-        config_file.unlink()
-        config_file.write_text("[]")
-        with self.assertRaises(ValueError):
-            self.installer.install(self.source, self.home)
-        self.assertEqual(config_file.read_text(), "[]")
-
-    def test_failed_config_write_cleans_temporary_file(self):
-        config_file = self.home / "config.yaml"
-        config_file.write_text("{}")
-        with patch.object(self.installer.yaml, "safe_dump", side_effect=OSError("synthetic failure")):
-            with self.assertRaises(OSError):
-                self.installer.install(self.source, self.home)
-        self.assertEqual(config_file.read_text(), "{}")
-        self.assertFalse(list(self.home.glob(".soma-web-*")))
 
 
 if __name__ == "__main__":

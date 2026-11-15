@@ -178,6 +178,13 @@ import runpy
 import sys
 sys.argv = sys.argv[1:]
 runpy.run_path(sys.argv[0], run_name="__main__")
+' "$script_dir/capabilities.py" --seed) >&2
+(cd "$source_dir" && "$hermes_python" -B -c '
+import hermes_bootstrap
+import runpy
+import sys
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
 ' "$script_dir/install-persona.py" "$repo_root/$soul_template" "$hermes_home") >&2
 mkdir -p "$hermes_home/skills"
 for skill_source in "$skill_source" "$action_skill_source"; do

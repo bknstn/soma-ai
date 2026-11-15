@@ -12,22 +12,16 @@ A separate allowlisted `health-action` interface can read the selected profile a
 
 ## Run
 
-After configuring Health OS paths and initializing the workspace, install and check the isolated Hermes runtime. Configure a model provider when needed, then start chat:
-
-```sh
-npm run runtime:setup
-npm run runtime:doctor
-npm run runtime:configure # when no model provider is configured
-npm run chat
-```
+Follow the [first-run guide](docs/first-run.md) to install the isolated Hermes
+runtime, choose a conversation provider and optionally enable search, voice
+input and spoken replies. The same guide applies to manual setup and to
+installation with Codex or Claude.
 
 The deterministic flow also runs directly, without a model provider:
 
 ```sh
 npm start -- prepare-training
 ```
-
-See the [Hermes setup and usage guide](docs/hermes.md) for isolated runtime setup, provider configuration, and Health OS paths.
 
 Inspect or configure the pinned runtime's context-compression policy with `npm run runtime:context`. The [context management guide](docs/context-management.md) documents validated policy patches, offline token budgets, gateway message limits, and disable/restore steps.
 
