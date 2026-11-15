@@ -1,0 +1,12 @@
+# Replace ACCOUNT and set the absolute Node path for this installation.
+[Unit]
+Description=Check for a newer Hermes release for SOMA
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /home/ACCOUNT/soma/source/soma-ai/scripts/check-hermes-release.js
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=20s
+UMask=0077
+NoNewPrivileges=true

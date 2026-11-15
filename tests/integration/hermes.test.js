@@ -53,6 +53,67 @@ test('managed Hermes doctor verifies offline help and both local skills', () => 
   assert.match(runRuntime(['doctor']), /hermes: ready/i);
 });
 
+test('managed chat keeps scheduled Curator output in its native private records', () => {
+  const python = fs.readFileSync(path.join(runtimeHome, 'hermes-python.txt'), 'utf8').trim();
+  const launcher = path.join(repoRoot, 'runtimes/hermes/chat.py');
+  const options = {
+    cwd: path.join(runtimeHome, 'working-directory'),
+    env: {
+      PATH: process.env.PATH,
+      HOME: path.join(runtimeHome, 'user-home'),
+      HERMES_HOME: path.join(runtimeHome, 'hermes-home'),
+      HERMES_MANAGED_DIR: path.join(runtimeHome, 'hermes-managed'),
+      HERMES_RUNTIME_DIR: path.join(runtimeHome, 'hermes-tools'),
+      HERMES_DISABLE_LAZY_INSTALLS: '1',
+      PYTHONNOUSERSITE: '1'
+    },
+    encoding: 'utf8',
+    timeout: 20_000
+  };
+  const help = spawnSync(python, ['-B', launcher, 'chat', '--cli', '--help'], options);
+  assert.ifError(help.error);
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /usage: .*chat/i);
+
+  const result = spawnSync(python, ['-B', '-c', `
+import runpy
+import socket
+import sys
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+launcher, source = sys.argv[1:]
+sys.path.insert(0, source)
+sys.argv = [launcher, "chat", "--cli"]
+
+def deny_network(*args, **kwargs):
+    raise AssertionError("Offline integration must not access the network")
+
+with patch.object(socket.socket, "connect", deny_network), patch.object(socket.socket, "connect_ex", deny_network):
+    import hermes_bootstrap
+    from hermes_cli.cli_tui_runtime_mixin import CLITuiRuntimeMixin
+    from agent import curator
+
+    console = Mock()
+    native_review = curator.run_curator_review
+    with patch.object(curator, "should_run_now", return_value=True), \
+         patch.object(curator, "get_consolidate", return_value=False), \
+         patch.object(curator, "run_curator_review", side_effect=lambda **kwargs: native_review(synchronous=True, **kwargs)) as review, \
+         patch("hermes_cli.main.main") as main:
+        runpy.run_path(launcher, run_name="__main__")
+        main.assert_called_once_with()
+        CLITuiRuntimeMixin._run_startup_maintenance(console)
+        review.assert_called_once_with(on_summary=None, trigger="scheduled")
+        console._console_print.assert_not_called()
+        state = curator.load_state()
+        assert "consolidation off" in state["last_run_summary"]
+        assert (Path(state["last_report_path"]) / "REPORT.md").is_file()
+`, launcher, path.join(repoRoot, 'third_party/hermes-agent')], options);
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout + result.stderr, /consolidation off/);
+});
+
 test('first-run choices are independent and the selected search plugin dispatches offline', (t) => {
   const runtimeHome = process.env.SOMA_RUNTIME_HOME;
   assert.equal(runtimeHome, path.resolve(process.env.RUNNER_TEMP, 'soma-hermes-runtime'));

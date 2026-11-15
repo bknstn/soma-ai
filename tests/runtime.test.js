@@ -589,6 +589,8 @@ test('Hermes provider maps generic skills action to pinned local-only CLI argv',
   const launch = await provider.launch({ action: 'skills', args: [], context: { runtimeHome } });
   assert.equal(launch.executable, fs.realpathSync(pythonPath));
   assert.deepEqual(launch.args, [path.join(fixture.source, 'hermes'), 'skills', 'list', '--source', 'local']);
+  const chatLaunch = await provider.launch({ action: 'chat', args: [], context: { runtimeHome } });
+  assert.deepEqual(chatLaunch.args, [path.join(fixture.runtime, 'chat.py'), 'chat', '--cli']);
   assert.equal(launch.cwd, path.join(runtimeHome, 'working-directory'));
   assert.throws(() => provider.validateLaunch({ action: 'chat', args: ['--profile', 'private'] }), {
     code: 'SOMA_HERMES_OPERATION_BLOCKED'

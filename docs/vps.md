@@ -97,4 +97,37 @@ For an explicitly authorized Oura refresh or history repair, use the separate
 [operator sync workflow](wearable-sync.md). Training preparation reads stored data;
 schedule data refresh separately when reports must use current provider readings.
 
+## Private maintenance
+
+Install the [release-check service](../deploy/systemd/soma-hermes-release-check.service)
+and [weekly timer](../deploy/systemd/soma-hermes-release-check.timer) in the
+operator's systemd user units. Adapt the absolute paths in the service, reload
+the user units and enable the timer with
+`systemctl --user enable --now soma-hermes-release-check.timer`.
+The service compares the manifest's pin with the latest stable public Hermes
+release. It has no gateway environment file and performs one bounded public HTTP
+request per attempt. Results and failures stay in the service journal. A newer
+release calls for the usual compatibility review and an explicitly authorized
+pin change. The check never downloads an update or changes either service.
+
+On an existing installation, identify the exact legacy maintenance job privately
+with `hermes cron list --all` against the managed Hermes home. Pause that job by
+ID with `hermes cron pause JOB_ID` before enabling the timer. If retaining its
+definition, also run `hermes cron edit JOB_ID --deliver local --failure-deliver local`. Review
+`hermes cron runs JOB_ID` and resolve any previously queued delivery with the
+operator before resuming the gateway. Queued sends already contain their
+original destinations. Leave the old maintenance job paused and keep the
+journal and scheduler records restricted to authorized maintainers.
+
+To verify on a test installation, confirm the next scheduled run with
+`systemctl --user list-timers soma-hermes-release-check.timer`. Run an immediate
+check with
+`systemctl --user start soma-hermes-release-check.service` and inspect
+`journalctl --user -u soma-hermes-release-check.service` after both the immediate
+and scheduled runs. Confirm that results appear in the journal and the test
+conversation receives no message. Check that a requested reminder and a normal
+message still reach the test conversation.
+The offline suite covers newer and unchanged release results, deferred
+compatibility review, failures and repeated attempts using synthetic replies.
+
 Remove task-created temporary scripts, probes, staging files, and validation copies on every host after each task. Preserve implementation, requested deliverables, persistent runtime state, user data, and backups covered by an agreed retention plan.

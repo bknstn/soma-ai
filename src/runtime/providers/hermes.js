@@ -592,7 +592,9 @@ export function createHermesProvider({ repoRoot, spawnSyncImpl = spawnSync, stde
               : ['pm', 'install', '--extra', MODEL_PROVIDER_EXTRAS.get(args[0])];
       return {
         executable: pythonPath,
-        args: [root.entrypoint, ...operationArgs],
+        args: action === 'chat'
+          ? [path.resolve(repoRoot, 'runtimes', 'hermes', 'chat.py'), ...operationArgs]
+          : [root.entrypoint, ...operationArgs],
         cwd: path.join(context.runtimeHome, root.runtime.working_directory)
       };
     }

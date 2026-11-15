@@ -6,6 +6,13 @@ boundary and the managed Telegram gateway.
 
 SOMA includes Hermes as its first swappable conversation runtime. The source is the `third_party/hermes-agent` Git submodule, pinned to upstream release **v0.22.5** at commit [`bf0203a794a07aac3ff764972ab9087baa4e4f4e`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e). The checked-in [runtime manifest](../runtimes/hermes/manifest.json) records the source and isolated install contract. Do not advance the submodule with `git submodule update --remote`; review a runtime update as a pinned source change.
 
+Scheduled Curator reviews keep their native cadence and private state in the
+managed Hermes home. The SOMA chat launcher omits the scheduled Curator console
+summary. Authorized maintainers can inspect `hermes curator status` and
+`logs/curator/` in that home. The Telegram gateway already directs Curator
+summaries to its logs. See [private maintenance](vps.md#private-maintenance)
+for scheduled release checks and migration of an existing maintenance job.
+
 ## Requirements and checkout
 
 The installer targets macOS and Linux and requires Bash. Use Git, Node.js 22.13.0 or newer, and system Python 3.11 through 3.14 for bootstrap. The setup script installs the pinned `uv` and Python 3.14 under the isolated runtime home; it does not require a globally installed Hermes or `uv`. From an existing SOMA checkout, initialize the pinned source:
