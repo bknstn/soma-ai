@@ -17,6 +17,32 @@
 - The first SOMA flow is read-only after explicit workspace initialization. Do not add writes to the training-preparation flow.
 - Keep the core Node CLI free of npm runtime dependencies. The pinned Hermes conversational runtime is an explicit product dependency, isolated from the Health OS workspace.
 
+## Delivery workflow
+
+For maintainer-requested changes to SOMA, complete the following workflow unless
+the request limits the scope. This standing instruction covers committing and
+pushing the requested changes and deploying to the maintainer's configured VPS.
+
+1. Implement and validate the change. Apply the public-repository safety gate,
+   then commit only the files for the task.
+2. Decide whether the product version needs a bump using `docs/releases.md`.
+   Before 1.0, use a minor bump for new features or breaking changes and a patch
+   bump for compatible fixes. From 1.0, use a major bump for breaking changes,
+   minor for compatible features and patch for compatible fixes. Instruction and
+   documentation changes alone can keep the current version. When a bump is
+   needed, update `package.json` and `CHANGELOG.md`, validate the release metadata,
+   and commit it before deploying.
+3. Push the reviewed commits and verify that the intended remote branch has the
+   deployment revision. Follow `docs/releases.md` for release tags.
+4. Follow `docs/vps.md` to deploy the published revision to the verified VPS.
+   Apply the relevant runtime or skill updates and restart services when needed
+   to load the change. Verify the deployed revision and affected service with
+   synthetic checks where applicable. A documentation-only change needs only a
+   checkout update on the VPS.
+5. Verify that the local and VPS working trees are clean. Report the published
+   commit, product version and deployment verification. Report any blocked or
+   unverified step explicitly.
+
 ## VPS operations
 
 - Read `docs/vps.md` before deployment work. Set `SOMA_VPS_SSH_HOST` explicitly before using `npm run vps:ssh` or `sh scripts/vps-ssh.sh`; the wrapper has no default host.

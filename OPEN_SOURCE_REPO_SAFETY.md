@@ -59,7 +59,8 @@ The agent MUST:
 5. replace environment-specific details with safe placeholders;
 6. stop and flag anything suspicious instead of guessing that it is safe.
 
-If the user did not explicitly ask the agent to create a commit, the agent should leave the changes uncommitted.
+Leave changes uncommitted unless the user explicitly authorizes a commit for the
+task or has given an applicable standing delivery instruction in `AGENTS.md`.
 
 ---
 
