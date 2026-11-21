@@ -259,7 +259,9 @@ function safeExercise(exercise) {
     name,
     sets: Number.isSafeInteger(exercise.target_sets) && exercise.target_sets >= 0 ? exercise.target_sets : null,
     reps,
-    target_weight_kg: weight
+    target_weight_kg: weight,
+    ...(exercise.load_mode === 'bodyweight' ? { load_mode: exercise.load_mode } : {}),
+    ...(exercise.rest_seconds !== undefined ? { rest_seconds: exercise.rest_seconds } : {})
   };
 }
 
@@ -298,6 +300,7 @@ export function presentPreparation(data) {
     workout: {
       mode: text(data.workout.mode, 'UNAVAILABLE'),
       scheduled_only: data.workout.scheduled_only === true,
+      ...(data.workout.duration_limit_minutes !== undefined ? { duration_limit_minutes: data.workout.duration_limit_minutes } : {}),
       exercises
     },
     recovery: {
@@ -326,6 +329,7 @@ export function renderPreparation(data) {
   if (recovery.reasons.length) lines.push(`Recovery reasons: ${recovery.reasons.join(', ')}`);
   if (recovery.explanation) lines.push(`Recovery rationale: ${recovery.explanation}`);
 
+  if (workout.duration_limit_minutes !== undefined) lines.push(`Session limit: ${workout.duration_limit_minutes} min`);
   lines.push('Scheduled exercises:');
   if (workout.exercises.length === 0) {
     lines.push('- None');
@@ -334,7 +338,9 @@ export function renderPreparation(data) {
       const reps = exercise.reps ? `, ${exercise.reps} reps` : '';
       const sets = exercise.sets === null ? '' : `${exercise.sets} sets`;
       const weight = exercise.target_weight_kg === null ? '' : `, ${exercise.target_weight_kg} kg`;
-      lines.push(`- ${exercise.name}: ${sets}${reps}${weight}`);
+      const load = exercise.load_mode === 'bodyweight' ? ', bodyweight' : weight;
+      const rest = exercise.rest_seconds === undefined ? '' : `, rest ${exercise.rest_seconds} s`;
+      lines.push(`- ${exercise.name}: ${sets}${reps}${load}${rest}`);
     }
   }
 

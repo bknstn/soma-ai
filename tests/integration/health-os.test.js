@@ -353,3 +353,76 @@ test('pinned Health OS selected profile, workout history, idempotent logging, an
     if (cleanupError) throw cleanupError;
   }
 });
+
+test('SOMA CLI replaces a saved plan slot and prepares the new prescription', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-plan-integration-'));
+  try {
+    const workspace = path.join(tempRoot, 'workspace');
+    const client = new HealthOsClient({ repo: healthOsRepo, workspace, healthActionMode: 'confirmed-writes' });
+    await client.initWorkspace();
+    await client.logWorkout({ date: '2026-10-22', idempotencyKey: 'synthetic:plan:workout', payload: {
+      session: { day: 'A', actual_mode: 'BASE', duration_minutes: 30, session_rpe: 5, energy_pre: 3, soreness_pre: 1 },
+      exercises: [{ exercise_key: 'squat', sets: [{ weight: 40, reps: 5 }] }]
+    } });
+
+    const call = async (argv, { input, mode = 'read-only' } = {}) => {
+      const stdout = outputSink();
+      const stderr = outputSink();
+      const status = await runCli([...argv, '--json'], {
+        config: { repo: healthOsRepo, workspace, healthActionMode: mode },
+        stdin: input === undefined ? undefined : [JSON.stringify(input)], stdout, stderr
+      });
+      assert.equal(stderr.value, '');
+      const response = JSON.parse(stdout.value);
+      assert.equal(status === 0, response.ok);
+      return response;
+    };
+    const show = (day) => call(['health-action', 'training-plan-show', '--day', day]);
+    const initial = (await show('B')).data;
+    const dayA = (await show('A')).data;
+    const source = initial.exercises[1].exercise_key;
+    const replacement = {
+      exercise_key: 'pushup', exercise_name: 'Push-up', sets: 2, reps_min: 10, reps_max: 10,
+      progression_type: 'quality_first', load_tier: 'bodyweight', load_mode: 'bodyweight', rest_seconds: 90
+    };
+    const replace = (key) => ['health-action', 'replace-plan-exercise', '--day', 'B', '--exercise', source,
+      '--expected-revision', initial.revision, '--idempotency-key', key, '--duration-limit-minutes', '55', '--input-json'];
+    const args = replace('synthetic:plan:1');
+    const write = { input: replacement, mode: 'confirmed-writes' };
+    assert.equal((await call(args, write)).error.code, 'HEALTH_OS_ACTION_INPUT_INVALID');
+    assert.equal((await call([...args, '--confirmed'])).error.code, 'HEALTH_OS_ACTION_WRITES_DISABLED');
+    assert.deepEqual((await show('B')).data, initial);
+
+    const saved = (await call([...args, '--confirmed'], write)).data;
+    assert.equal(saved.action, 'replace-plan-exercise');
+    assert.equal(saved.status, 'saved');
+    assert.equal(saved.position, 1);
+    assert.equal(saved.idempotency_status, 'completed');
+    assert.equal((await call([...args, '--confirmed'], write)).data.idempotency_status, 'replayed');
+    assert.equal((await call([...replace('synthetic:plan:stale'), '--confirmed'], write)).error.code,
+      'HEALTH_OS_TRAINING_PLAN_REVISION_CONFLICT');
+
+    const updated = (await show('B')).data;
+    assert.equal(updated.revision, saved.revision);
+    assert.equal(updated.duration_limit_minutes, 55);
+    assert.deepEqual(updated.exercises, initial.exercises.with(1, { increment_kg: 0, ...replacement }));
+    assert.deepEqual((await show('A')).data.exercises, dayA.exercises);
+
+    const { data: prepared } = await call(['prepare-training', '--as-of', asOf]);
+    assert.equal(prepared.session.day_type, 'B');
+    assert.equal(prepared.workout.duration_limit_minutes, 55);
+    assert.deepEqual(prepared.workout.exercises[1], {
+      name: 'Push-up', sets: 2, reps: '10', target_weight_kg: null, load_mode: 'bodyweight', rest_seconds: 90
+    });
+
+    const human = outputSink();
+    assert.equal(await runCli(['prepare-training', '--as-of', asOf], {
+      config: { repo: healthOsRepo, workspace }, stdout: human, stderr: outputSink()
+    }), 0);
+    assert.match(human.value, /Session limit: 55 min/);
+    assert.match(human.value, /Push-up: 2 sets, 10 reps, bodyweight, rest 90 s/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    assert.equal(fs.existsSync(tempRoot), false);
+  }
+});

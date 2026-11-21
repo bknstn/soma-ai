@@ -53,12 +53,13 @@ const command = args[0];
 const workspace = args[args.indexOf('--workspace') + 1];
 const mode = path.basename(workspace || '');
 const commands = ['version', 'capabilities', 'workspace-inspect', 'init-workspace', 'prepare-training',
-  'profile-show', 'timeline', 'log-workout', 'set-working-weight'];
+  'profile-show', 'timeline', 'log-workout', 'set-working-weight', 'training-plan-show', 'replace-plan-exercise'];
 const capabilities = {
   name: 'health-os', version: '0.1.0', cli_json_schema_version: 1, workspace_schema_versions: [1],
-  commands, contracts: { json_envelope_commands: commands, json_stdin_commands: ['log-workout'],
-    idempotency_commands: ['log-workout', 'set-working-weight'], read_only_event_commands: ['timeline'],
-    read_only_preparation_commands: ['prepare-training'], workspace_read_lock_commands: ['prepare-training'] },
+  commands, contracts: { json_envelope_commands: commands, json_stdin_commands: ['log-workout', 'replace-plan-exercise'],
+    idempotency_commands: ['log-workout', 'set-working-weight', 'replace-plan-exercise'], read_only_event_commands: ['timeline'],
+    read_only_preparation_commands: ['prepare-training'], workspace_read_lock_commands: ['prepare-training', 'training-plan-show'],
+    workspace_write_commands: ['replace-plan-exercise'], workspace_lock_commands: ['replace-plan-exercise'] },
   limits: { json_output_bytes: 262144 }
 };
 const base = {

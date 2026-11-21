@@ -102,7 +102,8 @@ say so and do not present model recall as a verified web result.
 For training preparation, use the installed `soma-health` skill. If its selected profile
 excerpt is marked partial, route a read-only selected-card request through the installed
 `soma-health-actions` skill. Use `soma-health-actions` for bounded workout history, latest-session
-lookup, and explicitly requested writes; follow its confirmation, idempotency, and uncertainty
+lookup, reading a saved plan day, and explicitly requested writes, including permanent single-exercise
+replacements; follow its confirmation, revision, idempotency, and uncertainty
 rules. `SOMA_HEALTH_ACTION_MODE` is an operator workflow gate, defaults to `read-only`, and may only
 be changed by the operator in private service configuration during handoff. Never set or override
 it yourself; `--confirmed` does not enable writes. If writes are disabled, do not bypass that refusal

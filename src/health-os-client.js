@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   HEALTH_OS_CLI_SCHEMA_VERSION,
@@ -15,7 +16,15 @@ const DIRTY_RUNTIME_PATHS = ['src', 'package.json', 'config', 'templates'];
 const MAX_STDERR_BYTES = 64 * 1024;
 const MIN_NODE_VERSION = [22, 13, 0];
 const REQUIRED_COMMANDS = ['version', 'capabilities', 'workspace-inspect', 'init-workspace', 'prepare-training',
-  'profile-show', 'timeline', 'log-workout', 'set-working-weight'];
+  'profile-show', 'timeline', 'log-workout', 'set-working-weight', 'training-plan-show', 'replace-plan-exercise'];
+const PLAN_DAY_KEY = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const EXERCISE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const PLAN_REVISION = /^[a-f0-9]{64}$/;
+const PLAN_WRITE_REJECTIONS = new Set([
+  'HEALTH_OS_TRAINING_PLAN_INVALID', 'HEALTH_OS_TRAINING_PLAN_DAY_NOT_FOUND',
+  'HEALTH_OS_TRAINING_PLAN_REVISION_CONFLICT', 'HEALTH_OS_TRAINING_PLAN_EXERCISE_NOT_FOUND',
+  'HEALTH_OS_TRAINING_PLAN_DUPLICATE_EXERCISE', 'HEALTH_OS_IDEMPOTENCY_CONFLICT'
+]);
 const HEALTH_OS_PROFILE_MAX_CHARS = 50_000;
 const HEALTH_OS_TIMELINE_LIMIT = 50;
 const WORKOUT_SOURCES = new Set(['legacy.workout_session']);
@@ -31,6 +40,18 @@ function isObject(value) {
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() !== '';
+}
+
+function matches(value, pattern) {
+  return typeof value === 'string' && pattern.test(value);
+}
+
+function boundedInteger(value, min, max) {
+  return Number.isSafeInteger(value) && value >= min && value <= max;
+}
+
+function validPlanDuration(value) {
+  return boundedInteger(value, 1, 1440);
 }
 
 function validProfilePath(value) {
@@ -274,13 +295,16 @@ function validateDomainResult(data, command) {
       !nonEmptyString(data.session_selection.reason)) {
     throw new HealthOsError('Health OS preparation returned incomplete session-selection details', { code: 'HEALTH_OS_INVALID_DOMAIN', command });
   }
-  if (typeof data.workout.scheduled_only !== 'boolean' || !nonEmptyString(data.workout.mode) || !Array.isArray(data.workout.exercises)) {
+  if (typeof data.workout.scheduled_only !== 'boolean' || !nonEmptyString(data.workout.mode) || !Array.isArray(data.workout.exercises) ||
+      (data.workout.duration_limit_minutes !== undefined && !validPlanDuration(data.workout.duration_limit_minutes))) {
     throw new HealthOsError('Health OS preparation returned incomplete workout details', { code: 'HEALTH_OS_INVALID_DOMAIN', command });
   }
   for (const exercise of data.workout.exercises) {
     if (!isObject(exercise) || !nonEmptyString(exercise.exercise_name) || !nonEmptyString(exercise.exercise_key) ||
         !Number.isInteger(exercise.target_sets) || exercise.target_sets < 0 || !nonEmptyString(exercise.target_reps) ||
-        !(typeof exercise.target_weight === 'string' || exercise.target_weight === null)) {
+        !(typeof exercise.target_weight === 'string' || exercise.target_weight === null) ||
+        (exercise.load_mode !== undefined && (exercise.load_mode !== 'bodyweight' || exercise.target_weight !== 'bodyweight')) ||
+        (exercise.rest_seconds !== undefined && !boundedInteger(exercise.rest_seconds, 0, 3600))) {
       throw new HealthOsError('Health OS preparation returned an invalid exercise candidate', { code: 'HEALTH_OS_INVALID_DOMAIN', command });
     }
   }
@@ -706,6 +730,63 @@ export class HealthOsClient {
     return { ...envelope.data, idempotency_status: envelope.idempotency.status, idempotency_key: idempotencyKey };
   }
 
+  async showTrainingPlan({ day } = {}) {
+    if (!matches(day, PLAN_DAY_KEY)) {
+      throw new HealthOsError('Training plan lookup requires a valid day key.', { code: 'HEALTH_OS_ACTION_INPUT_INVALID' });
+    }
+    const { capabilities } = await this.#prepareActionWorkspace();
+    const { data } = await this.#runEnvelope('training-plan-show', ['--day', day], capabilities.cli_json_schema_version);
+    if (!isObject(data) || data.day !== day || !matches(data.revision, PLAN_REVISION) ||
+        (data.duration_limit_minutes !== null && !validPlanDuration(data.duration_limit_minutes)) ||
+        !Array.isArray(data.exercises) || data.exercises.length > 50 || data.exercises.some((entry) =>
+          !isObject(entry) || !matches(entry.exercise_key, EXERCISE_KEY) || !nonEmptyString(entry.exercise_name))) {
+      throw new HealthOsError('Health OS returned an unsupported training plan.', { code: 'HEALTH_OS_INVALID_TRAINING_PLAN' });
+    }
+    return data;
+  }
+
+  async replacePlanExercise({ day, exercise, expectedRevision, durationLimit, idempotencyKey, replacement } = {}) {
+    const command = 'replace-plan-exercise';
+    if (this.#config.healthActionMode !== 'confirmed-writes') {
+      throw new HealthOsError('Health writes are disabled by the operator action mode.', { code: 'HEALTH_OS_ACTION_WRITES_DISABLED' });
+    }
+    requireIdempotencyKey(idempotencyKey);
+    if (!matches(day, PLAN_DAY_KEY) || !matches(exercise, EXERCISE_KEY) || !matches(expectedRevision, PLAN_REVISION) ||
+        (durationLimit !== undefined && !validPlanDuration(durationLimit)) || !isObject(replacement)) {
+      throw new HealthOsError('Plan replacement requires a valid day, source exercise, revision and replacement.', {
+        code: 'HEALTH_OS_ACTION_INPUT_INVALID', command
+      });
+    }
+    const input = JSON.stringify(replacement);
+    if (Buffer.byteLength(input) > 64 * 1024) {
+      throw new HealthOsError('Replacement exceeds the supported input size.', { code: 'HEALTH_OS_ACTION_INPUT_INVALID', command });
+    }
+    const { capabilities } = await this.#prepareActionWorkspace();
+    const args = ['--day', day, '--exercise', exercise, '--expected-revision', expectedRevision,
+      '--idempotency-key', idempotencyKey, '--input-json'];
+    if (durationLimit !== undefined) args.push('--duration-limit-minutes', String(durationLimit));
+    const unknownOutcome = (cause) => new HealthOsError('Plan write outcome is unknown. Inspect the plan before retrying with the same key.', {
+      code: 'HEALTH_OS_WRITE_OUTCOME_UNKNOWN', command, cause
+    });
+    let envelope;
+    try {
+      envelope = await this.#runEnvelope(command, args, capabilities.cli_json_schema_version, input);
+    } catch (error) {
+      if (PLAN_WRITE_REJECTIONS.has(error.code)) throw error;
+      throw unknownOutcome(error);
+    }
+    const { data, idempotency } = envelope;
+    if (!isObject(data) || data.status !== 'saved' || data.day !== day || data.replaced_exercise_key !== exercise ||
+        !boundedInteger(data.position, 0, 49) || !matches(data.revision, PLAN_REVISION) ||
+        (data.duration_limit_minutes !== null && !validPlanDuration(data.duration_limit_minutes)) ||
+        (durationLimit !== undefined && data.duration_limit_minutes !== durationLimit) ||
+        !isDeepStrictEqual(data.exercise, { increment_kg: 0, ...JSON.parse(input) }) ||
+        !['completed', 'replayed'].includes(idempotency?.status)) {
+      throw unknownOutcome();
+    }
+    return { ...data, idempotency_status: idempotency.status, idempotency_key: idempotencyKey };
+  }
+
   async #prepareActionWorkspace() {
     const { capabilities } = await this.#ensureDiscovered();
     this.#assertRepositoryCompatibility();
@@ -856,15 +937,19 @@ export class HealthOsClient {
         !capabilities.contracts || !Array.isArray(capabilities.contracts.json_envelope_commands) ||
         REQUIRED_COMMANDS.some((command) => !capabilities.contracts.json_envelope_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.json_stdin_commands) ||
-        !capabilities.contracts.json_stdin_commands.includes('log-workout') ||
+        !['log-workout', 'replace-plan-exercise'].every((command) => capabilities.contracts.json_stdin_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.idempotency_commands) ||
-        !['log-workout', 'set-working-weight'].every((command) => capabilities.contracts.idempotency_commands.includes(command)) ||
+        !['log-workout', 'set-working-weight', 'replace-plan-exercise'].every((command) => capabilities.contracts.idempotency_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.read_only_event_commands) ||
         !capabilities.contracts.read_only_event_commands.includes('timeline') ||
         !Array.isArray(capabilities.contracts.read_only_preparation_commands) ||
         !capabilities.contracts.read_only_preparation_commands.includes('prepare-training') ||
         !Array.isArray(capabilities.contracts.workspace_read_lock_commands) ||
-        !capabilities.contracts.workspace_read_lock_commands.includes('prepare-training') ||
+        !['prepare-training', 'training-plan-show'].every((command) => capabilities.contracts.workspace_read_lock_commands.includes(command)) ||
+        !Array.isArray(capabilities.contracts.workspace_write_commands) ||
+        !capabilities.contracts.workspace_write_commands.includes('replace-plan-exercise') ||
+        !Array.isArray(capabilities.contracts.workspace_lock_commands) ||
+        !capabilities.contracts.workspace_lock_commands.includes('replace-plan-exercise') ||
         capabilities.limits?.json_output_bytes !== HEALTH_OS_MAX_JSON_OUTPUT_BYTES) {
       throw new HealthOsError('Health OS capabilities do not advertise the required SOMA integration contract', {
         code: 'HEALTH_OS_CAPABILITIES_INCOMPATIBLE', command: 'capabilities'
@@ -899,7 +984,7 @@ export class HealthOsClient {
       if (stdinInput !== undefined) {
         child.stdin.on('error', (error) => {
           if (!terminalError) {
-            terminalError = new HealthOsError('Health OS did not accept the complete workout input stream.', {
+            terminalError = new HealthOsError('Health OS did not accept the complete input stream.', {
               code: 'HEALTH_OS_STDIN_FAILED', command, cause: error
             });
           }
@@ -946,7 +1031,7 @@ export class HealthOsClient {
         try {
           child.stdin.end(stdinInput);
         } catch (error) {
-          terminalError = new HealthOsError('Health OS did not accept the complete workout input stream.', {
+          terminalError = new HealthOsError('Health OS did not accept the complete input stream.', {
             code: 'HEALTH_OS_STDIN_FAILED', command, cause: error
           });
           child.kill('SIGTERM');

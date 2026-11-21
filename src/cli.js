@@ -15,13 +15,16 @@ import {
 
 const COMMANDS = new Set(['doctor', 'init', 'prepare-training', 'health-action']);
 const BASE_VALUE_FLAGS = new Set(['--workspace', '--health-os-repo', '--as-of']);
-const HEALTH_ACTIONS = new Set(['profile', 'workout-history', 'latest-workout', 'log-workout', 'set-working-weight']);
+const HEALTH_WRITES = new Set(['log-workout', 'set-working-weight', 'replace-plan-exercise']);
+const JSON_INPUT_ACTIONS = new Set(['log-workout', 'replace-plan-exercise']);
 const HEALTH_ACTION_VALUE_FLAGS = Object.freeze({
   profile: new Set(),
   'workout-history': new Set(['--since', '--through']),
   'latest-workout': new Set(['--through']),
   'log-workout': new Set(['--date', '--idempotency-key']),
-  'set-working-weight': new Set(['--exercise', '--weight', '--increment', '--idempotency-key'])
+  'set-working-weight': new Set(['--exercise', '--weight', '--increment', '--idempotency-key']),
+  'training-plan-show': new Set(['--day']),
+  'replace-plan-exercise': new Set(['--day', '--exercise', '--expected-revision', '--duration-limit-minutes', '--idempotency-key'])
 });
 const SAFE_ERROR_MESSAGES = Object.freeze({
   HEALTH_OS_WORKSPACE_REQUIRED: 'Set HEALTH_OS_WORKSPACE or pass --workspace PATH.',
@@ -57,6 +60,14 @@ const SAFE_ERROR_MESSAGES = Object.freeze({
   HEALTH_OS_ACTION_WRITES_DISABLED: 'Health writes are disabled by the operator-controlled SOMA_HEALTH_ACTION_MODE.',
   HEALTH_OS_INVALID_PROFILE: 'Health OS returned invalid selected-profile metadata.',
   HEALTH_OS_INVALID_HISTORY: 'Health OS returned invalid or incomplete workout history.',
+  HEALTH_OS_INVALID_TRAINING_PLAN: 'Health OS returned an invalid or incomplete plan day.',
+  HEALTH_OS_TRAINING_PLAN_INVALID: 'Health OS rejected the plan or the replacement fields.',
+  HEALTH_OS_TRAINING_PLAN_DAY_NOT_FOUND: 'The specified day is absent from the training plan.',
+  HEALTH_OS_TRAINING_PLAN_EXERCISE_NOT_FOUND: 'The source exercise is absent from the specified plan day.',
+  HEALTH_OS_TRAINING_PLAN_DUPLICATE_EXERCISE: 'The replacement exercise already exists on the specified plan day.',
+  HEALTH_OS_TRAINING_PLAN_OUTPUT_LIMIT: 'The plan day exceeds the structured response limit.',
+  HEALTH_OS_TRAINING_PLAN_REVISION_CONFLICT: 'The training plan changed. Read the day again before proposing a revised replacement.',
+  HEALTH_OS_IDEMPOTENCY_CONFLICT: 'The idempotency key belongs to a different request. Inspect the plan before attempting a new write.',
   HEALTH_OS_WRITE_OUTCOME_UNKNOWN: 'The write outcome is unknown. Inspect Health OS before retrying, and reuse the same idempotency key after review.'
 });
 const INIT_MAY_HAVE_COMPLETED = new Set([
@@ -71,7 +82,7 @@ Commands:
   doctor             Check Health OS compatibility and workspace status
   init               Initialize a new empty Health OS workspace
   prepare-training   Prepare the scheduled training plan for an exact time
-  health-action      Read selected profile/history or explicitly log workout/weight
+  health-action      Read profile, workout history or plan, or make an explicit health write
 
 Health actions:
   profile
@@ -79,6 +90,9 @@ Health actions:
   latest-workout --through YYYY-MM-DD
   log-workout --confirmed --date YYYY-MM-DD --idempotency-key KEY --input-json
   set-working-weight --confirmed --exercise KEY --weight KG --idempotency-key KEY
+  training-plan-show --day PLAN_DAY
+  replace-plan-exercise --confirmed --day PLAN_DAY --exercise KEY --expected-revision REVISION
+                        --idempotency-key KEY --input-json [--duration-limit-minutes MINUTES]
 
 Options:
   --health-os-repo PATH  Health OS checkout (or HEALTH_OS_REPO)
@@ -108,7 +122,7 @@ function parseArgs(argv) {
   if (command === 'health-action') {
     action = argv[1];
     optionStart = 2;
-    if (!HEALTH_ACTIONS.has(action)) throw new CliError('Choose a supported health action.');
+    if (!Object.hasOwn(HEALTH_ACTION_VALUE_FLAGS, action)) throw new CliError('Choose a supported health action.');
   }
 
   const options = { command, action, json: false };
@@ -147,10 +161,10 @@ function parseArgs(argv) {
   if (command === 'health-action' && options.json !== true) {
     throw new CliError('Health actions require --json so private content is not rendered by the human formatter.');
   }
-  if (options['input-json'] && action !== 'log-workout') {
-    throw new CliError('--input-json is available only with the log-workout health action.');
+  if (options['input-json'] && !JSON_INPUT_ACTIONS.has(action)) {
+    throw new CliError('--input-json is available only with log-workout and replace-plan-exercise.');
   }
-  if (options.confirmed && !['log-workout', 'set-working-weight'].includes(action)) {
+  if (options.confirmed && !HEALTH_WRITES.has(action)) {
     throw new CliError('--confirmed is available only for explicit health writes.');
   }
   if (command !== 'health-action' && (options['input-json'] || options.confirmed)) {
@@ -166,7 +180,7 @@ async function readJsonInput(stream, maxBytes = 64 * 1024) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     byteLength += buffer.byteLength;
     if (byteLength > maxBytes) {
-      throw new CliError('Workout JSON input exceeds the supported size limit.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+      throw new CliError('JSON input exceeds the supported size limit.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
     }
     chunks.push(buffer);
   }
@@ -176,7 +190,7 @@ async function readJsonInput(stream, maxBytes = 64 * 1024) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('shape');
     return value;
   } catch {
-    throw new CliError('Workout JSON input must be one bare JSON object.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+    throw new CliError('JSON input must be one bare JSON object.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
   }
 }
 
@@ -351,6 +365,28 @@ export async function runCli(argv, dependencies = {}) {
         const increment = parsed.increment === undefined ? undefined : Number(parsed.increment);
         data = { action, ...(await client.setWorkingWeight({
           exercise: parsed.exercise, weight, increment, idempotencyKey: parsed['idempotency-key']
+        })) };
+      } else if (action === 'training-plan-show') {
+        data = { action, ...(await client.showTrainingPlan({ day: parsed.day })) };
+      } else if (action === 'replace-plan-exercise') {
+        if (!parsed.confirmed || !parsed.day || !parsed.exercise || !parsed['expected-revision'] ||
+            !parsed['idempotency-key'] || !parsed['input-json']) {
+          throw new CliError('Plan replacement requires --confirmed, --day, --exercise, --expected-revision, --idempotency-key, and --input-json.',
+            'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+        }
+        if ((config?.healthActionMode ?? env.SOMA_HEALTH_ACTION_MODE ?? 'read-only') !== 'confirmed-writes') {
+          throw new CliError('Health writes are disabled by the operator-controlled SOMA_HEALTH_ACTION_MODE.',
+            'HEALTH_OS_ACTION_WRITES_DISABLED', 2);
+        }
+        const limit = parsed['duration-limit-minutes'];
+        if (limit !== undefined && !/^\d{1,4}$/.test(limit)) {
+          throw new CliError('The duration limit must be an integer number of minutes.', 'HEALTH_OS_ACTION_INPUT_INVALID', 2);
+        }
+        const replacement = await readJsonInput(dependencies.stdin || process.stdin);
+        data = { action, ...(await client.replacePlanExercise({
+          day: parsed.day, exercise: parsed.exercise, expectedRevision: parsed['expected-revision'],
+          durationLimit: limit === undefined ? undefined : Number(limit),
+          idempotencyKey: parsed['idempotency-key'], replacement
         })) };
       }
       writeResponse(command, true, data, renderHealthAction(data), stdout);
