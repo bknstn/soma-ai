@@ -72,8 +72,8 @@ outside the managed blocks remain in place; conflicting verbosity instructions t
 need an operator review. Existing installed health skills are seeded only when missing;
 compare them with the bundled `skills/soma-health/SKILL.md` and
 `skills/soma-health-actions/SKILL.md` and merge updated instructions while preserving
-operator customizations. Merge both updated skills to enable conversational plan replacement
-and report its saved prescription. Setup does not perform that merge. The managed style policy
+operator customizations. Merge both updated skills to enable conversational exercise
+replacements and timed blocks and include them in preparation reports. The managed style policy
 also applies to their reports. These are
 model instructions; offline tests verify installation and preservation, not live
 model style/language compliance or speech-recognition accuracy.
@@ -163,7 +163,7 @@ Prepare Health OS separately by following [the checkout, path configuration, and
 npm run chat
 ```
 
-Use `/soma-health` to prepare the training scenario. The separate `/soma-health-actions` capability provides bounded profile, history and plan reads and operator-gated writes, including replacement of one exercise in a saved plan. Latest-workout lookups require `--through` from the configured local calendar. The Hermes skills call SOMA's bounded JSON interface and do not initialize, import, sync, or migrate Health OS records. Review [the privacy model](privacy.md) before including private health context in a provider conversation.
+Use `/soma-health` to prepare the training scenario. The separate `/soma-health-actions` capability provides bounded profile, history and plan reads and operator-gated writes, including exercise replacements and timed blocks for one or all saved plan days. Latest-workout lookups require `--through` from the configured local calendar. The Hermes skills call SOMA's bounded JSON interface and do not initialize, import, sync, or migrate Health OS records. Review [the privacy model](privacy.md) before including private health context in a provider conversation.
 
 For an offline native-skill check, use `node src/runtime/cli.js skills list`. It reads the local skill list from the isolated Hermes home and does not contact a model provider or remote skill registry.
 

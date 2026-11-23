@@ -15,11 +15,13 @@ import {
 const DIRTY_RUNTIME_PATHS = ['src', 'package.json', 'config', 'templates'];
 const MAX_STDERR_BYTES = 64 * 1024;
 const MIN_NODE_VERSION = [22, 13, 0];
+const PLAN_WRITE_COMMANDS = ['replace-plan-exercise', 'set-plan-block'];
 const REQUIRED_COMMANDS = ['version', 'capabilities', 'workspace-inspect', 'init-workspace', 'prepare-training',
-  'profile-show', 'timeline', 'log-workout', 'set-working-weight', 'training-plan-show', 'replace-plan-exercise'];
+  'profile-show', 'timeline', 'log-workout', 'set-working-weight', 'training-plan-show', ...PLAN_WRITE_COMMANDS];
 const PLAN_DAY_KEY = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
-const EXERCISE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const PLAN_ENTRY_KEY = /^[a-z][a-z0-9_]{0,63}$/;
 const PLAN_REVISION = /^[a-f0-9]{64}$/;
+const PLAN_BLOCK_FIELDS = new Set(['block_key', 'block_name', 'duration_minutes', 'notes']);
 const PLAN_WRITE_REJECTIONS = new Set([
   'HEALTH_OS_TRAINING_PLAN_INVALID', 'HEALTH_OS_TRAINING_PLAN_DAY_NOT_FOUND',
   'HEALTH_OS_TRAINING_PLAN_REVISION_CONFLICT', 'HEALTH_OS_TRAINING_PLAN_EXERCISE_NOT_FOUND',
@@ -52,6 +54,23 @@ function boundedInteger(value, min, max) {
 
 function validPlanDuration(value) {
   return boundedInteger(value, 1, 1440);
+}
+
+function validPlanBlock(block) {
+  return isObject(block) && Object.keys(block).every((key) => PLAN_BLOCK_FIELDS.has(key)) &&
+    matches(block.block_key, PLAN_ENTRY_KEY) && nonEmptyString(block.block_name) && block.block_name.length <= 200 &&
+    validPlanDuration(block.duration_minutes) &&
+    (block.notes === undefined || (typeof block.notes === 'string' && block.notes.length <= 500));
+}
+
+function validPlanBlocks(blocks) {
+  return blocks === undefined || (Array.isArray(blocks) && blocks.length <= 20 &&
+    blocks.every(validPlanBlock) && new Set(blocks.map((block) => block.block_key)).size === blocks.length);
+}
+
+function validPlanDays(days) {
+  return Array.isArray(days) && boundedInteger(days.length, 1, 20) &&
+    days.every((day) => matches(day, PLAN_DAY_KEY)) && new Set(days).size === days.length;
 }
 
 function validProfilePath(value) {
@@ -296,7 +315,8 @@ function validateDomainResult(data, command) {
     throw new HealthOsError('Health OS preparation returned incomplete session-selection details', { code: 'HEALTH_OS_INVALID_DOMAIN', command });
   }
   if (typeof data.workout.scheduled_only !== 'boolean' || !nonEmptyString(data.workout.mode) || !Array.isArray(data.workout.exercises) ||
-      (data.workout.duration_limit_minutes !== undefined && !validPlanDuration(data.workout.duration_limit_minutes))) {
+      (data.workout.duration_limit_minutes !== undefined && !validPlanDuration(data.workout.duration_limit_minutes)) ||
+      !validPlanBlocks(data.workout.blocks)) {
     throw new HealthOsError('Health OS preparation returned incomplete workout details', { code: 'HEALTH_OS_INVALID_DOMAIN', command });
   }
   for (const exercise of data.workout.exercises) {
@@ -731,15 +751,19 @@ export class HealthOsClient {
   }
 
   async showTrainingPlan({ day } = {}) {
-    if (!matches(day, PLAN_DAY_KEY)) {
+    if (day !== undefined && !matches(day, PLAN_DAY_KEY)) {
       throw new HealthOsError('Training plan lookup requires a valid day key.', { code: 'HEALTH_OS_ACTION_INPUT_INVALID' });
     }
     const { capabilities } = await this.#prepareActionWorkspace();
-    const { data } = await this.#runEnvelope('training-plan-show', ['--day', day], capabilities.cli_json_schema_version);
-    if (!isObject(data) || data.day !== day || !matches(data.revision, PLAN_REVISION) ||
-        (data.duration_limit_minutes !== null && !validPlanDuration(data.duration_limit_minutes)) ||
-        !Array.isArray(data.exercises) || data.exercises.length > 50 || data.exercises.some((entry) =>
-          !isObject(entry) || !matches(entry.exercise_key, EXERCISE_KEY) || !nonEmptyString(entry.exercise_name))) {
+    const args = day === undefined ? [] : ['--day', day];
+    const { data } = await this.#runEnvelope('training-plan-show', args, capabilities.cli_json_schema_version);
+    if (!isObject(data) || !matches(data.revision, PLAN_REVISION) ||
+        (day === undefined ? !validPlanDays(data.days) : (
+          data.day !== day || (data.duration_limit_minutes !== null && !validPlanDuration(data.duration_limit_minutes)) ||
+          !Array.isArray(data.exercises) || data.exercises.length > 50 || data.exercises.some((entry) =>
+            !isObject(entry) || !matches(entry.exercise_key, PLAN_ENTRY_KEY) || !nonEmptyString(entry.exercise_name)) ||
+          !validPlanBlocks(data.blocks)
+        ))) {
       throw new HealthOsError('Health OS returned an unsupported training plan.', { code: 'HEALTH_OS_INVALID_TRAINING_PLAN' });
     }
     return data;
@@ -751,7 +775,7 @@ export class HealthOsClient {
       throw new HealthOsError('Health writes are disabled by the operator action mode.', { code: 'HEALTH_OS_ACTION_WRITES_DISABLED' });
     }
     requireIdempotencyKey(idempotencyKey);
-    if (!matches(day, PLAN_DAY_KEY) || !matches(exercise, EXERCISE_KEY) || !matches(expectedRevision, PLAN_REVISION) ||
+    if (!matches(day, PLAN_DAY_KEY) || !matches(exercise, PLAN_ENTRY_KEY) || !matches(expectedRevision, PLAN_REVISION) ||
         (durationLimit !== undefined && !validPlanDuration(durationLimit)) || !isObject(replacement)) {
       throw new HealthOsError('Plan replacement requires a valid day, source exercise, revision and replacement.', {
         code: 'HEALTH_OS_ACTION_INPUT_INVALID', command
@@ -761,26 +785,50 @@ export class HealthOsClient {
     if (Buffer.byteLength(input) > 64 * 1024) {
       throw new HealthOsError('Replacement exceeds the supported input size.', { code: 'HEALTH_OS_ACTION_INPUT_INVALID', command });
     }
-    const { capabilities } = await this.#prepareActionWorkspace();
-    const args = ['--day', day, '--exercise', exercise, '--expected-revision', expectedRevision,
-      '--idempotency-key', idempotencyKey, '--input-json'];
+    const args = ['--day', day, '--exercise', exercise, '--expected-revision', expectedRevision];
     if (durationLimit !== undefined) args.push('--duration-limit-minutes', String(durationLimit));
+    return this.#writeTrainingPlan(command, args, input, idempotencyKey, (data) =>
+      data.day === day && data.replaced_exercise_key === exercise && boundedInteger(data.position, 0, 49) &&
+      (data.duration_limit_minutes === null || validPlanDuration(data.duration_limit_minutes)) &&
+      (durationLimit === undefined || data.duration_limit_minutes === durationLimit) &&
+      isDeepStrictEqual(data.exercise, { increment_kg: 0, ...JSON.parse(input) }));
+  }
+
+  async setPlanBlock({ day, allDays = false, expectedRevision, idempotencyKey, block } = {}) {
+    const command = 'set-plan-block';
+    if (this.#config.healthActionMode !== 'confirmed-writes') {
+      throw new HealthOsError('Health writes are disabled by the operator action mode.', { code: 'HEALTH_OS_ACTION_WRITES_DISABLED' });
+    }
+    requireIdempotencyKey(idempotencyKey);
+    if (typeof allDays !== 'boolean' || (allDays ? day !== undefined : !matches(day, PLAN_DAY_KEY)) ||
+        !matches(expectedRevision, PLAN_REVISION) || !validPlanBlock(block)) {
+      throw new HealthOsError('A timed block requires one plan scope, a valid revision, and a valid block.', {
+        code: 'HEALTH_OS_ACTION_INPUT_INVALID', command
+      });
+    }
+    const input = JSON.stringify(block);
+    const args = allDays ? ['--all-days'] : ['--day', day];
+    args.push('--expected-revision', expectedRevision);
+    return this.#writeTrainingPlan(command, args, input, idempotencyKey, (data) =>
+      validPlanDays(data.days) && (allDays || (data.days.length === 1 && data.days[0] === day)) &&
+      isDeepStrictEqual(data.block, JSON.parse(input)));
+  }
+
+  async #writeTrainingPlan(command, args, input, idempotencyKey, validateResult) {
+    const { capabilities } = await this.#prepareActionWorkspace();
     const unknownOutcome = (cause) => new HealthOsError('Plan write outcome is unknown. Inspect the plan before retrying with the same key.', {
       code: 'HEALTH_OS_WRITE_OUTCOME_UNKNOWN', command, cause
     });
     let envelope;
     try {
-      envelope = await this.#runEnvelope(command, args, capabilities.cli_json_schema_version, input);
+      envelope = await this.#runEnvelope(command, [...args, '--idempotency-key', idempotencyKey, '--input-json'],
+        capabilities.cli_json_schema_version, input);
     } catch (error) {
       if (PLAN_WRITE_REJECTIONS.has(error.code)) throw error;
       throw unknownOutcome(error);
     }
     const { data, idempotency } = envelope;
-    if (!isObject(data) || data.status !== 'saved' || data.day !== day || data.replaced_exercise_key !== exercise ||
-        !boundedInteger(data.position, 0, 49) || !matches(data.revision, PLAN_REVISION) ||
-        (data.duration_limit_minutes !== null && !validPlanDuration(data.duration_limit_minutes)) ||
-        (durationLimit !== undefined && data.duration_limit_minutes !== durationLimit) ||
-        !isDeepStrictEqual(data.exercise, { increment_kg: 0, ...JSON.parse(input) }) ||
+    if (!isObject(data) || data.status !== 'saved' || !matches(data.revision, PLAN_REVISION) || !validateResult(data) ||
         !['completed', 'replayed'].includes(idempotency?.status)) {
       throw unknownOutcome();
     }
@@ -937,9 +985,9 @@ export class HealthOsClient {
         !capabilities.contracts || !Array.isArray(capabilities.contracts.json_envelope_commands) ||
         REQUIRED_COMMANDS.some((command) => !capabilities.contracts.json_envelope_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.json_stdin_commands) ||
-        !['log-workout', 'replace-plan-exercise'].every((command) => capabilities.contracts.json_stdin_commands.includes(command)) ||
+        !['log-workout', ...PLAN_WRITE_COMMANDS].every((command) => capabilities.contracts.json_stdin_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.idempotency_commands) ||
-        !['log-workout', 'set-working-weight', 'replace-plan-exercise'].every((command) => capabilities.contracts.idempotency_commands.includes(command)) ||
+        !['log-workout', 'set-working-weight', ...PLAN_WRITE_COMMANDS].every((command) => capabilities.contracts.idempotency_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.read_only_event_commands) ||
         !capabilities.contracts.read_only_event_commands.includes('timeline') ||
         !Array.isArray(capabilities.contracts.read_only_preparation_commands) ||
@@ -947,9 +995,9 @@ export class HealthOsClient {
         !Array.isArray(capabilities.contracts.workspace_read_lock_commands) ||
         !['prepare-training', 'training-plan-show'].every((command) => capabilities.contracts.workspace_read_lock_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.workspace_write_commands) ||
-        !capabilities.contracts.workspace_write_commands.includes('replace-plan-exercise') ||
+        !PLAN_WRITE_COMMANDS.every((command) => capabilities.contracts.workspace_write_commands.includes(command)) ||
         !Array.isArray(capabilities.contracts.workspace_lock_commands) ||
-        !capabilities.contracts.workspace_lock_commands.includes('replace-plan-exercise') ||
+        !PLAN_WRITE_COMMANDS.every((command) => capabilities.contracts.workspace_lock_commands.includes(command)) ||
         capabilities.limits?.json_output_bytes !== HEALTH_OS_MAX_JSON_OUTPUT_BYTES) {
       throw new HealthOsError('Health OS capabilities do not advertise the required SOMA integration contract', {
         code: 'HEALTH_OS_CAPABILITIES_INCOMPATIBLE', command: 'capabilities'

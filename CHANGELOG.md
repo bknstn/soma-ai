@@ -5,6 +5,28 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
+### Added
+
+- Save or update timed training blocks for one or all plan days through
+  `health-action set-plan-block` and the conversational health-actions skill.
+  Writes use the operator gate, plan revision and idempotency key. Read the plan
+  day keys with `training-plan-show` and see saved blocks after the exercises in
+  training preparation.
+- Replace a saved exercise in its existing slot after reading the current plan
+  revision. Preparation preserves bodyweight, rest periods and day limits.
+- Configure a fresh Hermes home with a provider-neutral first-run command.
+
+### Fixed
+
+- Retain scheduled Hermes release checks in the operator's private service journal.
+
+### Upgrade
+
+- Check out the pinned Health OS 0.2.0 revision. Merge the bundled health skill
+  updates into existing Hermes installations and restart the gateway or chat.
+
 ## [0.2.2] - 2026-11-04
 
 ### Added

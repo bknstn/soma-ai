@@ -6,13 +6,13 @@ SOMA's first workflow prepares a training session from a local Health OS workspa
 
 - Node.js 22.13.0 or newer
 - Git
-- Health OS at the compatible revision `333c9d0e507dbe44cbbf4ae3ae6f4eda94697fa3`
+- Health OS at the compatible revision `a684931c2fa08b91207c1259b905a37a18777dbb`
 
 If Health OS is not available, clone it into a separate directory and check out the pinned revision:
 
 ```sh
 git clone https://github.com/bknstn/health-os.git "$HOME/src/health-os-soma"
-git -C "$HOME/src/health-os-soma" checkout --detach 333c9d0e507dbe44cbbf4ae3ae6f4eda94697fa3
+git -C "$HOME/src/health-os-soma" checkout --detach a684931c2fa08b91207c1259b905a37a18777dbb
 ```
 
 An existing checkout can be used if its `HEAD` matches that SHA and its executable contract files are unchanged. SOMA does not reset or update the Health OS checkout.

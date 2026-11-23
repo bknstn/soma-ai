@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const HEALTH_OS_EXPECTED_REVISION = '333c9d0e507dbe44cbbf4ae3ae6f4eda94697fa3';
-export const HEALTH_OS_PACKAGE_VERSION = '0.1.0';
+export const HEALTH_OS_EXPECTED_REVISION = 'a684931c2fa08b91207c1259b905a37a18777dbb';
+export const HEALTH_OS_PACKAGE_VERSION = '0.2.0';
 export const HEALTH_OS_CLI_SCHEMA_VERSION = 1;
 export const HEALTH_OS_WORKSPACE_SCHEMA_VERSION = 1;
 export const HEALTH_OS_PREPARATION_SCHEMA_VERSION = 1;

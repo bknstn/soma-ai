@@ -72,7 +72,7 @@ Adapt [the systemd user-service template](../deploy/systemd/hermes-soma.service)
    - Review the intended SOMA revision and its CI results before installation. For a deployment from `main`, fetch and fast-forward the server checkout, then verify its HEAD matches the intended `origin/main` revision.
    - Check the selected account, dependencies, free space, and target-path availability without opening private application data. Create new paths without overwriting existing files.
    - Initialize the committed Hermes submodule; do not update it to upstream main. The supported Hermes revision is `bf0203a794a07aac3ff764972ab9087baa4e4f4e` (v0.22.5).
-   - Check out Health OS separately at the supported revision `333c9d0e507dbe44cbbf4ae3ae6f4eda94697fa3`. This is the reviewed compatibility target for this SOMA adapter, not a latest-release claim.
+   - Check out Health OS separately at the supported revision `a684931c2fa08b91207c1259b905a37a18777dbb`. This is the reviewed compatibility target for this SOMA adapter, not a latest-release claim.
 
 2. **Prepare isolated runtime and workspace.**
    - Export the explicit paths, run `npm run runtime:setup` and `npm run runtime:doctor`, and check the local native skill list without provider credentials.

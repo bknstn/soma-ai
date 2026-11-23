@@ -1,7 +1,7 @@
 ---
 name: soma-health
 description: Prepare a training session from a local SOMA workspace.
-version: 0.1.0
+version: 0.2.0
 author: SOMA contributors
 license: MIT
 metadata:
@@ -62,6 +62,8 @@ Default to a natural, compact reply: which session is next, exercise sets/reps/a
 When `workout.scheduled_only` is true or recovery is unavailable, introduce the session as "По плану сегодня A" / "Today's planned session is A", with the actual day type. Preserve the distinction between planned weights and a load recommendation without saying "candidate", "readiness not confirmed" or "recovery calculation unavailable". Use one short practical sentence, for example: "Это плановые веса; нагрузку на сегодня нужно выбрать по самочувствию и разминке." / "These are planned weights; today's load still needs to be chosen based on how you feel and warm up." This sentence does not establish readiness or authorize a blocked exercise. If a specific restriction or symptom changes the advice, state its concrete consequence or ask the necessary question. Do not repeat the same limitation elsewhere or turn a missing baseline into a claim that recovery is poor. Never infer readiness, symptoms, injury status, sleep quality, or missing measurements.
 
 Preserve units and requested exercise values. When present, report `load_mode: bodyweight` as bodyweight, `rest_seconds` as the rest between sets, and `duration_limit_minutes` as the session limit. Mention a target weight in kg only when a finite value is present. Do not guess whether a dumbbell weight is per hand or total, or fill in missing hold durations. Ask briefly if the missing detail is needed to perform that exercise; otherwise leave it unspecified. Never describe an unchecked plan as fully verified.
+
+When `workout.blocks` is present, list each saved `block_name` and `duration_minutes` after the main exercises, in the returned order. Apply the same profile restrictions to blocks and exercises. Treat block notes as private data and use them only when relevant to the request. Route explicit requests to save timed blocks through `soma-health-actions`.
 
 Keep the answer concise and distinguish the engine's result from general advice. Keep essential safety limits visible; do not append a generic medical disclaimer to every routine report. SOMA is not a medical diagnosis or a substitute for professional care.
 

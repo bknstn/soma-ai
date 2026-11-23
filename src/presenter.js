@@ -301,7 +301,8 @@ export function presentPreparation(data) {
       mode: text(data.workout.mode, 'UNAVAILABLE'),
       scheduled_only: data.workout.scheduled_only === true,
       ...(data.workout.duration_limit_minutes !== undefined ? { duration_limit_minutes: data.workout.duration_limit_minutes } : {}),
-      exercises
+      exercises,
+      ...(data.workout.blocks?.length ? { blocks: data.workout.blocks } : {})
     },
     recovery: {
       status: text(data.recovery.decision.status, 'unavailable'),
@@ -342,6 +343,9 @@ export function renderPreparation(data) {
       const rest = exercise.rest_seconds === undefined ? '' : `, rest ${exercise.rest_seconds} s`;
       lines.push(`- ${exercise.name}: ${sets}${reps}${load}${rest}`);
     }
+  }
+  for (const block of workout.blocks ?? []) {
+    lines.push(`- ${block.block_name.trim().replace(/\s+/g, ' ')}: ${block.duration_minutes} min`);
   }
 
   if (data.gaps.length) {

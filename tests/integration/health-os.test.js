@@ -354,7 +354,7 @@ test('pinned Health OS selected profile, workout history, idempotent logging, an
   }
 });
 
-test('SOMA CLI replaces a saved plan slot and prepares the new prescription', async () => {
+test('SOMA CLI saves plan replacements and timed blocks, then prepares the updated session', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-plan-integration-'));
   try {
     const workspace = path.join(tempRoot, 'workspace');
@@ -377,7 +377,7 @@ test('SOMA CLI replaces a saved plan slot and prepares the new prescription', as
       assert.equal(status === 0, response.ok);
       return response;
     };
-    const show = (day) => call(['health-action', 'training-plan-show', '--day', day]);
+    const show = (day) => call(['health-action', 'training-plan-show', ...(day === undefined ? [] : ['--day', day])]);
     const initial = (await show('B')).data;
     const dayA = (await show('A')).data;
     const source = initial.exercises[1].exercise_key;
@@ -414,6 +414,48 @@ test('SOMA CLI replaces a saved plan slot and prepares the new prescription', as
     assert.deepEqual(prepared.workout.exercises[1], {
       name: 'Push-up', sets: 2, reps: '10', target_weight_kg: null, load_mode: 'bodyweight', rest_seconds: 90
     });
+    assert.equal(prepared.workout.blocks, undefined);
+
+    const { data: plan } = await show();
+    assert.deepEqual(plan.days, ['A', 'B']);
+    assert.equal(plan.revision, updated.revision);
+    const cooldown = { block_key: 'easy_cycle', block_name: 'Easy cycling', duration_minutes: 12, notes: 'Synthetic note.' };
+    const mobility = { block_key: 'mobility', block_name: 'Mobility', duration_minutes: 5 };
+    const setBlock = (revision, key, ...scope) => ['health-action', 'set-plan-block', ...scope,
+      '--expected-revision', revision, '--idempotency-key', key, '--input-json'];
+    const blockWrite = (input) => ({ input, mode: 'confirmed-writes' });
+    const allDays = setBlock(plan.revision, 'synthetic:block:all', '--all-days');
+    assert.equal((await call(allDays, blockWrite(cooldown))).error.code, 'HEALTH_OS_ACTION_INPUT_INVALID');
+    assert.equal((await call([...allDays, '--confirmed'])).error.code, 'HEALTH_OS_ACTION_WRITES_DISABLED');
+    assert.equal((await call([...allDays, '--confirmed', '--day', 'B'], blockWrite(cooldown))).error.code,
+      'HEALTH_OS_ACTION_INPUT_INVALID');
+    assert.equal((await call(setBlock(plan.revision, 'synthetic:block:no-scope', '--confirmed'), blockWrite(cooldown))).error.code,
+      'HEALTH_OS_ACTION_INPUT_INVALID');
+    assert.equal((await call([...allDays, '--confirmed'], blockWrite({ ...cooldown, duration_minutes: 0 }))).error.code,
+      'HEALTH_OS_ACTION_INPUT_INVALID');
+    assert.equal((await show()).data.revision, plan.revision);
+
+    const { data: savedBlock } = await call([...allDays, '--confirmed'], blockWrite(cooldown));
+    assert.equal(savedBlock.action, 'set-plan-block');
+    assert.equal(savedBlock.status, 'saved');
+    assert.deepEqual(savedBlock.days, plan.days);
+    assert.deepEqual(savedBlock.block, cooldown);
+    assert.equal(savedBlock.idempotency_status, 'completed');
+    const writeDay = (revision, key, block) => call(setBlock(revision, key, '--day', 'B', '--confirmed'), blockWrite(block));
+    assert.equal((await writeDay(plan.revision, 'synthetic:block:stale', mobility)).error.code,
+      'HEALTH_OS_TRAINING_PLAN_REVISION_CONFLICT');
+    const { data: appended } = await writeDay(savedBlock.revision, 'synthetic:block:mobility', mobility);
+    const shorter = { ...cooldown, duration_minutes: 10 };
+    const { data: updatedBlock } = await writeDay(appended.revision, 'synthetic:block:update', shorter);
+    assert.deepEqual(updatedBlock.days, ['B']);
+    assert.equal((await call([...allDays, '--confirmed'], blockWrite(cooldown))).data.idempotency_status, 'replayed');
+    assert.deepEqual((await show('A')).data.blocks, [cooldown]);
+    const { data: savedDay } = await show('B');
+    assert.deepEqual(savedDay.blocks, [shorter, mobility]);
+    assert.deepEqual(savedDay.exercises, updated.exercises);
+    assert.equal(savedDay.duration_limit_minutes, 55);
+    const { data: preparedBlocks } = await call(['prepare-training', '--as-of', asOf]);
+    assert.deepEqual(preparedBlocks.workout.blocks, [shorter, mobility]);
 
     const human = outputSink();
     assert.equal(await runCli(['prepare-training', '--as-of', asOf], {
@@ -421,6 +463,9 @@ test('SOMA CLI replaces a saved plan slot and prepares the new prescription', as
     }), 0);
     assert.match(human.value, /Session limit: 55 min/);
     assert.match(human.value, /Push-up: 2 sets, 10 reps, bodyweight, rest 90 s/);
+    assert.match(human.value, /[^\n]+\n- Easy cycling: 10 min\n- Mobility: 5 min\nGaps/);
+    assert.doesNotMatch(human.value, /Synthetic note/);
+    assert.equal((await show()).data.revision, updatedBlock.revision);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
     assert.equal(fs.existsSync(tempRoot), false);

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { HEALTH_OS_EXPECTED_REVISION } from '../src/config.js';
+import { HEALTH_OS_EXPECTED_REVISION, HEALTH_OS_PACKAGE_VERSION } from '../src/config.js';
 import { HealthOsClient, parseHealthOsEnvelope } from '../src/health-os-client.js';
 
 test('Health OS client enforces the CLI envelope and subprocess boundary', { concurrency: 4 }, async (t) => {
@@ -52,14 +52,15 @@ const args = process.argv.slice(2);
 const command = args[0];
 const workspace = args[args.indexOf('--workspace') + 1];
 const mode = path.basename(workspace || '');
+const planWrites = ['replace-plan-exercise', 'set-plan-block'];
 const commands = ['version', 'capabilities', 'workspace-inspect', 'init-workspace', 'prepare-training',
-  'profile-show', 'timeline', 'log-workout', 'set-working-weight', 'training-plan-show', 'replace-plan-exercise'];
+  'profile-show', 'timeline', 'log-workout', 'set-working-weight', 'training-plan-show', ...planWrites];
 const capabilities = {
-  name: 'health-os', version: '0.1.0', cli_json_schema_version: 1, workspace_schema_versions: [1],
-  commands, contracts: { json_envelope_commands: commands, json_stdin_commands: ['log-workout', 'replace-plan-exercise'],
-    idempotency_commands: ['log-workout', 'set-working-weight', 'replace-plan-exercise'], read_only_event_commands: ['timeline'],
+  name: 'health-os', version: '${HEALTH_OS_PACKAGE_VERSION}', cli_json_schema_version: 1, workspace_schema_versions: [1],
+  commands, contracts: { json_envelope_commands: commands, json_stdin_commands: ['log-workout', ...planWrites],
+    idempotency_commands: ['log-workout', 'set-working-weight', ...planWrites], read_only_event_commands: ['timeline'],
     read_only_preparation_commands: ['prepare-training'], workspace_read_lock_commands: ['prepare-training', 'training-plan-show'],
-    workspace_write_commands: ['replace-plan-exercise'], workspace_lock_commands: ['replace-plan-exercise'] },
+    workspace_write_commands: planWrites, workspace_lock_commands: planWrites },
   limits: { json_output_bytes: 262144 }
 };
 const base = {
@@ -79,7 +80,7 @@ const base = {
 function emit(data, ok = true, extra = {}) {
   process.stdout.write(JSON.stringify({ schema_version: 1, command, ok, ...extra, ...(ok ? { data } : {}) }) + '\n');
 }
-if (mode === 'read-only-write-guard' && ['log-workout', 'set-working-weight'].includes(command)) {
+if (mode === 'read-only-write-guard' && ['log-workout', 'set-working-weight', ...planWrites].includes(command)) {
   fs.mkdirSync(workspace, { recursive: true });
   fs.writeFileSync(path.join(workspace, '.native-write-or-journal-attempted'), 'unexpected');
   process.exit(99);
@@ -90,7 +91,7 @@ if (mode === 'timeout' && command === 'capabilities') {
 } else if (mode === 'output-limit' && command === 'capabilities') {
   process.stdout.write('x'.repeat(2048));
 } else if (command === 'version') {
-  emit({ name: 'health-os', version: '0.1.0' });
+  emit({ name: 'health-os', version: capabilities.version });
 } else if (command === 'capabilities') {
   emit(capabilities);
 } else if (command === 'workspace-inspect') {
@@ -108,6 +109,10 @@ if (mode === 'timeout' && command === 'capabilities') {
   emit({ ...base, schema_version: 2 });
 } else if (command === 'prepare-training' && mode === 'inconsistent') {
   emit({ ...base, workout: { ...base.workout, scheduled_only: false } });
+} else if (command === 'prepare-training' && mode === 'invalid-block') {
+  emit({ ...base, workout: { ...base.workout, blocks: [
+    { block_key: 'mobility', block_name: 'Mobility', duration_minutes: 0 }
+  ] } });
 } else if (command === 'prepare-training' && mode === 'argv') {
   emit({ ...base, probe: { args: process.argv.slice(2), home_present: Object.hasOwn(process.env, 'HOME'),
     model_secret_present: Object.hasOwn(process.env, 'MODEL_API_KEY') } });
@@ -215,16 +220,19 @@ if (mode === 'timeout' && command === 'capabilities') {
   checks.push(t.test('discovers the pinned version and mandatory preparation capability before workspace reads', async () => {
     const client = makeClient('success');
     const discovered = await client.discover();
-    assert.equal(discovered.version.version, '0.1.0');
+    assert.equal(discovered.version.version, HEALTH_OS_PACKAGE_VERSION);
     assert.equal(discovered.capabilities.cli_json_schema_version, 1);
     assert.equal((await client.inspectWorkspace()).status, 'versioned');
   }));
 
-  checks.push(t.test('rejects schema mismatch and incompatible decision/workout combinations', async () => {
+  checks.push(t.test('rejects unsupported schemas and invalid workouts', async () => {
     await assert.rejects(makeClient('schema').prepareTraining({ asOf: '2026-10-24' }), {
       code: 'HEALTH_OS_SCHEMA_MISMATCH'
     });
     await assert.rejects(makeClient('inconsistent').prepareTraining({ asOf: '2026-10-24' }), {
+      code: 'HEALTH_OS_INVALID_DOMAIN'
+    });
+    await assert.rejects(makeClient('invalid-block').prepareTraining({ asOf: '2026-10-24' }), {
       code: 'HEALTH_OS_INVALID_DOMAIN'
     });
   }));
@@ -314,6 +322,10 @@ if (mode === 'timeout' && command === 'capabilities') {
     }), { code: 'HEALTH_OS_ACTION_WRITES_DISABLED' });
     await assert.rejects(client.setWorkingWeight({
       exercise: 'squat', weight: 55, idempotencyKey: 'synthetic:blocked:2'
+    }), { code: 'HEALTH_OS_ACTION_WRITES_DISABLED' });
+    await assert.rejects(client.setPlanBlock({
+      allDays: true, expectedRevision: 'a'.repeat(64), idempotencyKey: 'synthetic:blocked:3',
+      block: { block_key: 'mobility', block_name: 'Mobility', duration_minutes: 5 }
     }), { code: 'HEALTH_OS_ACTION_WRITES_DISABLED' });
     assert.equal(fs.existsSync(readonlyWorkspace), false,
       'read-only refusal must occur before native CLI invocation, workspace mutation, or write journal creation');
