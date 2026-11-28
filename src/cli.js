@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { calendarDay } from './calendar-day.js';
 import { loadConfig } from './config.js';
 import { HealthOsClient } from './health-os-client.js';
 import { SOMA_VERSION } from './version.js';
@@ -244,6 +245,16 @@ function currentInstant(now) {
   return date.toISOString();
 }
 
+function reportDay(asOf, timezone) {
+  // An explicit instant's written date is the fallback when no zone is configured.
+  if (!timezone) return asOf.slice(0, 10);
+  try {
+    return calendarDay(new Date(asOf), timezone);
+  } catch {
+    throw new CliError('Set TZ to a valid timezone for the training report.', 'SOMA_INVALID_TIMEZONE', 2);
+  }
+}
+
 function safeFailure(error, command) {
   if (error instanceof CliError) return { code: error.code, message: error.message, exitCode: error.exitCode };
   if (error?.code === 'SOMA_INVALID_AS_OF') {
@@ -309,6 +320,7 @@ export async function runCli(argv, dependencies = {}) {
     const asOf = command === 'prepare-training'
       ? parsed['as-of'] || currentInstant(dependencies.now || (() => new Date()))
       : undefined;
+    const reportDate = asOf && reportDay(asOf, env.TZ);
     let config = dependencies.config;
     if (!config && !dependencies.client) {
       const repo = parsed['health-os-repo'] || env.HEALTH_OS_REPO;
@@ -331,7 +343,7 @@ export async function runCli(argv, dependencies = {}) {
       return 0;
     }
     if (command === 'prepare-training') {
-      const data = presentPreparation(await client.prepareTraining({ asOf }));
+      const data = presentPreparation(await client.prepareTraining({ asOf }), { reportDate });
       writeResponse(command, json, data, renderPreparation(data), stdout);
       return 0;
     }

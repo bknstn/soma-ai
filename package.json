@@ -1,6 +1,6 @@
 {
   "name": "soma-ai",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "type": "module",
   "description": "An AI agent for understanding and caring for your body as a whole.",

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { credentialFile, localDay, runSync, syncAndVerify } from '../scripts/sync-oura-day.js';
-import { HealthOsClient } from '../src/health-os-client.js';
+import { HealthOsClient, parseHealthOsEnvelope } from '../src/health-os-client.js';
 
 const date = '2026-02-14';
 const observation = {
@@ -26,6 +26,7 @@ test('single-day sync verifies stored observations and reuses the occurrence ide
     calls.push(args); return queue.shift();
   } });
   assert.equal(result.status, 'verified');
+  assert.equal(result.report_status, 'partial');
   assert.equal(result.idempotency_status, 'replayed');
   assert.deepEqual(calls, [
     ['oura-sync-from-token', ['--date', date, '--idempotency-key', 'oura:2026-02-14:synthetic-occurrence'], true],
@@ -33,6 +34,36 @@ test('single-day sync verifies stored observations and reuses the occurrence ide
   ]);
   assert.equal(JSON.stringify(result).includes('50'), false);
   assert.equal(Object.hasOwn(result, 'mode'), false);
+});
+
+test('a complete report requires both verified Oura daily scores', () => {
+  const items = responses();
+  for (const set of [items[0].data.observation_set, items[1].data.observations[0]]) {
+    set.proprietary_scores = [
+      { metric: 'readiness_score', status: 'observed', value: 90 },
+      { metric: 'sleep_score', status: 'observed', value: 85 }
+    ];
+  }
+  const result = syncAndVerify({ date, requestId: 'synthetic', invoke() { return items.shift(); } });
+  assert.equal(result.report_status, 'complete');
+  assert.equal(Object.hasOwn(result, 'proprietary_scores'), false);
+});
+
+test('native Oura failures expose only recognized status and pending metadata', () => {
+  const command = 'oura-sync-from-token';
+  for (const [error, details] of [
+    [{ code: 'HEALTH_OS_ERROR', message: 'Oura API request failed with status 401' },
+      { date, provider_http_status: 401 }],
+    [{ code: 'HEALTH_OS_IDEMPOTENCY_IN_PROGRESS', message: 'SYNTHETIC_PRIVATE_DETAIL' },
+      { date, reason: 'pending_request' }],
+    [{ code: 'HEALTH_OS_ERROR', message: 'Oura API request failed with status 429 SYNTHETIC_PRIVATE_DETAIL' },
+      { date }]
+  ]) {
+    assert.throws(() => syncAndVerify({ date, requestId: 'synthetic', invoke() {
+      const stdout = JSON.stringify({ schema_version: 1, command, ok: false, error });
+      return parseHealthOsEnvelope({ command, status: 1, stdout });
+    } }), { code: 'SOMA_SYNC_OUTCOME_UNKNOWN', message: 'SOMA_SYNC_OUTCOME_UNKNOWN', details });
+  }
 });
 
 test('unknown writes stop without a retry, a new identity, or a read-back success claim', () => {

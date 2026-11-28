@@ -44,7 +44,7 @@ function observationFor(date, { current = false } = {}) {
   return {
     schema_version: 1,
     date,
-    source: { id: 'synthetic', label: 'Synthetic integration fixture', reference: null },
+    source: { id: 'oura', label: 'Synthetic integration fixture', reference: null },
     freshness: {
       status: 'fresh', observed_at: observedAt, evaluated_at: evaluatedAt, max_age_seconds: 3600
     },
@@ -150,6 +150,12 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
     const soma = JSON.parse(stdout.value);
     assert.equal(soma.ok, true);
     assert.equal(soma.data.recovery.status, 'available');
+    assert.equal(soma.data.report_date, asOfDate);
+    assert.equal(soma.data.plan_date, asOfDate);
+    assert.deepEqual(soma.data.recovery.oura, {
+      date: asOfDate,
+      metrics: { readiness_score: 90, sleep_score: 90, hrv_ms: 53, resting_hr_bpm: 58 }
+    });
     assert.equal(soma.data.memory_status, 'blocked');
     assert.equal(soma.data.health_context.profile.status, 'available');
     assert.equal(typeof soma.data.health_context.profile.content, 'string');
@@ -157,6 +163,14 @@ test('pinned Health OS: empty, sufficient synthetic recovery, and blocked-memory
     assert.deepEqual(soma.data.health_context.memory.evidence, []);
     assert.equal(stdout.value.includes('SYNTHETIC_BLOCKED_EVENT_TEXT'), false);
     assert.equal(stdout.value.includes('SYNTHETIC_PROFILE_PRIVATE_TEXT'), false);
+
+    const tomorrow = outputSink();
+    const nextDay = dateOffset(asOfDate, 1);
+    assert.equal(await runCli(['prepare-training', '--as-of', `${nextDay}T12:00:00Z`, '--json'],
+      { client, stdout: tomorrow, stderr: outputSink(), env: { TZ: 'UTC' } }), 0);
+    const subsequentReport = JSON.parse(tomorrow.value).data;
+    assert.equal(subsequentReport.report_date, nextDay);
+    assert.equal(subsequentReport.recovery.oura.date, asOfDate);
 
     const eventId = added.event.event_id;
     const wiki = path.join(workspace, '.health-os', 'memory', 'wiki', 'synthetic-training-context.md');

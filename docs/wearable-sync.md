@@ -44,8 +44,14 @@ Reuse that exact identity after a reviewed interrupted attempt. A timeout, pendi
 or malformed journal result, or read-back mismatch stops without an automatic retry
 or a replacement key. A verified completed request may be refreshed later under a
 new, explicitly authorized occurrence identity. The command's small JSON result
-contains no measurements and makes no training/readiness recommendation. An empty
-provider response is an error, distinct from missing baseline coverage.
+contains no measurements and makes no training/readiness recommendation.
+`status: verified` confirms the exact observation was stored. Its `report_status`
+is `complete` when the observation includes both daily scores and `partial`
+when measurements arrived without both scores. An empty provider response is an
+error, distinct from missing baseline coverage. When the pinned CLI identifies
+an HTTP rejection, the error includes only the date and numeric
+`provider_http_status`. A `pending_request` reason requires reconciliation
+before a new identity can be used for the same date.
 
 ## Daily freshness
 
@@ -56,7 +62,8 @@ then enable the timer. Provider credentials stay out of both the source tree and
 general gateway environment. `Persistent=true` refreshes the current local day after
 downtime; it does not invent old scheduled occurrences or silently backfill history.
 The timer does not send chat messages. Check its failure status through the operator's
-service monitoring. A successful service exit requires a matching stored observation;
+service monitoring and confirm that the report status is complete. Set the same
+timezone in the training report environment. A successful service exit requires a matching stored observation;
 offline tests and unit installation alone do not establish a successful live fetch.
 
 ## Repair an authorized history

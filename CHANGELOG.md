@@ -5,6 +5,22 @@ Semantic Versioning. See [the release guide](docs/releases.md).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-28
+
+### Fixed
+
+- Label the local report date, the date used to select the workout, and the Oura
+  observation date. In conversation, withhold a workout selected for a different
+  day and disclose when that day's Oura data cannot support an Oura-based plan.
+- Distinguish complete and partial Oura syncs and surface safe diagnostics for
+  provider HTTP errors and pending requests.
+
+### Upgrade
+
+- Use the same `TZ` for the gateway and the Oura sync service. Merge the
+  bundled `soma-health` skill into existing Hermes installations and reload
+  the gateway or chat.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added

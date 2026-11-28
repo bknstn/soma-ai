@@ -5,21 +5,18 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { calendarDay } from '../src/calendar-day.js';
 import { loadConfig } from '../src/config.js';
 import { HealthOsClient, parseHealthOsEnvelope } from '../src/health-os-client.js';
 
-function fail(code) {
-  throw Object.assign(new Error(code), { code });
+function fail(code, details = {}) {
+  throw Object.assign(new Error(code), { code, details });
 }
 
 export function localDay(timezone, now = new Date()) {
   if (typeof timezone !== 'string' || !timezone.trim()) fail('SOMA_SYNC_TIMEZONE_REQUIRED');
   try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit'
-    }).formatToParts(now);
-    const value = (type) => parts.find((part) => part.type === type).value;
-    return `${value('year')}-${value('month')}-${value('day')}`;
+    return calendarDay(now, timezone);
   } catch {
     fail('SOMA_SYNC_TIMEZONE_INVALID');
   }
@@ -42,34 +39,51 @@ export function credentialFile(filename, excludedRoots) {
   return resolved;
 }
 
+function syncFailureDetails(error) {
+  // The pinned native CLI wraps the connector's fixed HTTP error in its JSON
+  // envelope. Recognize only that exact form; keep all other text private.
+  const http = /^Health OS oura-sync-from-token failed \(HEALTH_OS_ERROR\): Oura API request failed with status ([45]\d\d)$/
+    .exec(error?.message);
+  if (error?.code === 'HEALTH_OS_ERROR' && http) return { provider_http_status: Number(http[1]) };
+  if (error?.code === 'HEALTH_OS_IDEMPOTENCY_IN_PROGRESS') return { reason: 'pending_request' };
+  if (error?.code === 'HEALTH_OS_IDEMPOTENCY_CONFLICT' ||
+      error?.code === 'HEALTH_OS_IDEMPOTENCY_RECORD_INVALID') return { reason: 'journal_error' };
+  if (error?.code === 'HEALTH_OS_TOKEN_FILE_INVALID') return { reason: 'invalid_token_file' };
+  return {};
+}
+
 /** A verified provider write is distinct from a training/readiness decision. */
 export function syncAndVerify({ date, requestId, invoke }) {
   const key = `oura:${date}:${requestId}`;
   let envelope;
   try {
     envelope = invoke('oura-sync-from-token', ['--date', date, '--idempotency-key', key], true);
-  } catch {
-    fail('SOMA_SYNC_OUTCOME_UNKNOWN');
+  } catch (error) {
+    fail('SOMA_SYNC_OUTCOME_UNKNOWN', { date, ...syncFailureDetails(error) });
   }
   const data = envelope.data;
   const observation = data?.observation_set;
   if (!['completed', 'replayed'].includes(envelope.idempotency?.status) ||
       data?.connector !== 'oura' || data?.date !== date || observation?.source?.id !== 'oura' ||
       observation?.date !== date || !Array.isArray(observation.physical_metrics) ||
-      !Array.isArray(observation.proprietary_scores)) fail('SOMA_SYNC_OUTCOME_UNKNOWN');
+      !Array.isArray(observation.proprietary_scores)) fail('SOMA_SYNC_OUTCOME_UNKNOWN', { date });
   let saved;
   try {
     saved = invoke('wearable-observations', ['--source', 'oura', '--date', date], false).data;
   } catch {
-    fail('SOMA_SYNC_READBACK_UNVERIFIED');
+    fail('SOMA_SYNC_READBACK_UNVERIFIED', { date });
   }
   if (saved?.truncated !== false || saved?.matched_count !== 1 ||
-      !isDeepStrictEqual(saved.observations, [observation])) fail('SOMA_SYNC_READBACK_UNVERIFIED');
+      !isDeepStrictEqual(saved.observations, [observation])) fail('SOMA_SYNC_READBACK_UNVERIFIED', { date });
   const samples = [...observation.physical_metrics, ...observation.proprietary_scores];
-  if (!samples.some((sample) => sample.status === 'observed' && Number.isFinite(sample.value))) {
-    fail('SOMA_SYNC_NO_OBSERVATIONS');
+  const isObserved = (sample) => sample?.status === 'observed' && Number.isFinite(sample.value);
+  if (!samples.some(isObserved)) {
+    fail('SOMA_SYNC_NO_OBSERVATIONS', { date });
   }
-  return { date, source: 'oura', status: 'verified', idempotency_status: envelope.idempotency.status };
+  const scores = observation.proprietary_scores.filter(isObserved);
+  const complete = ['readiness_score', 'sleep_score'].every((metric) => scores.some((sample) => sample.metric === metric));
+  return { date, source: 'oura', status: 'verified', report_status: complete ? 'complete' : 'partial',
+    idempotency_status: envelope.idempotency.status };
 }
 
 export async function runSync(argv, env = process.env) {
@@ -145,7 +159,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       process.stdout.write(`${JSON.stringify({ schema_version: 1, command: 'sync-oura-day', ok: true, data })}\n`);
     } catch (error) {
       const code = /^SOMA_SYNC_[A-Z_]+$/.test(error?.code || '') ? error.code : 'SOMA_SYNC_PREFLIGHT_FAILED';
-      process.stderr.write(`${JSON.stringify({ schema_version: 1, command: 'sync-oura-day', ok: false, error: { code } })}\n`);
+      const details = code === 'SOMA_SYNC_PREFLIGHT_FAILED' ? {} : error.details;
+      process.stderr.write(`${JSON.stringify({ schema_version: 1, command: 'sync-oura-day', ok: false, error: { code, ...details } })}\n`);
       process.exitCode = 1;
     }
   }

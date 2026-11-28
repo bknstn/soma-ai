@@ -127,6 +127,25 @@ test('date-only as-of is rejected before the client is called', async () => {
   assert.match(envelope.error.message, /full RFC3339 timestamp/);
 });
 
+test('the local report day and the pinned engine day stay distinct near midnight', async () => {
+  const stdout = sink();
+  const asOf = '2026-10-24T22:30:00.000Z';
+  const client = testClient({
+    async prepareTraining(options) {
+      assert.deepEqual(options, { asOf });
+      return { ...healthyPreparation, as_of: { value: asOf, date: '2026-10-24' } };
+    }
+  });
+  const result = await runCli(['prepare-training', '--json'], {
+    stdout, stderr: sink(), client, env: { TZ: 'Europe/Warsaw' }, now: () => new Date(asOf)
+  });
+  assert.equal(result, 0);
+  const { data } = JSON.parse(stdout.value);
+  assert.equal(data.report_date, '2026-10-25');
+  assert.equal(data.plan_date, '2026-10-24');
+  assert.equal(data.as_of, asOf);
+});
+
 test('rejects RFC3339 values outside Health OS timestamp precision and offset bounds', async () => {
   for (const asOf of ['2026-10-24T10:00:00.1234Z', '2026-10-24T10:00:00+14:01', '0000-10-24T10:00:00Z']) {
     const stdout = sink();

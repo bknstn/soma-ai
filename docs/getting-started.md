@@ -59,6 +59,8 @@ node src/cli.js prepare-training --as-of 2026-10-24T08:00:00Z --json
 
 The versioned JSON envelope contains a bounded summary with the plan, recovery status and rationale, source references, and gaps. It may also include the exact selected profile excerpt, bounded subjective-event context, and memory evidence with provenance and truncation metadata. Treat those fields as private health context; the default human-readable formatter omits their contents.
 
+The report date follows `TZ` when set, or the date in the RFC3339 cutoff otherwise. Health OS selects the workout using the UTC calendar date of the cutoff, exposed as `plan_date`. Near local midnight those dates can differ. The conversational skill reports that limitation and withholds the mismatched workout. When Health OS selected Oura observations, the summary includes their own date and up to four eligible measurements under `recovery.oura`.
+
 ## Verify
 
 The deterministic Health OS CLI has no npm runtime dependencies. Hermes is an explicit optional runtime installed separately; see the [Hermes guide](hermes.md). Run the unit and contract suite with Node 22.13.0 or newer:

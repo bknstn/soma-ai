@@ -265,8 +265,27 @@ function safeExercise(exercise) {
   };
 }
 
+function presentOura(recovery) {
+  const date = recovery.date;
+  if (recovery.source_type !== 'wearable_observation_set' || recovery.source?.id !== 'oura' ||
+      date == null || !safeDateOrNull(date)) return null;
+
+  const metrics = {};
+  for (const [name, sample, units] of [
+    ['readiness_score', recovery.proprietary_scores?.readiness_score, ['score']],
+    ['sleep_score', recovery.proprietary_scores?.sleep_score, ['score']],
+    ['hrv_ms', recovery.physical_metrics?.hrv, ['ms']],
+    ['resting_hr_bpm', recovery.physical_metrics?.resting_hr, ['bpm', 'beats/min', 'beats_per_minute']]
+  ]) {
+    if (sample?.status === 'observed' && sample.eligible_for_decision === true &&
+        Number.isFinite(sample.value) && units.includes(sample.unit) &&
+        (sample.observed_date == null || sample.observed_date === date)) metrics[name] = sample.value;
+  }
+  return { date, metrics };
+}
+
 /** Convert Health OS training preparation into the deliberately small SOMA response contract. */
-export function presentPreparation(data) {
+export function presentPreparation(data, { reportDate } = {}) {
   if (!record(data) || data.schema_version !== 1 || !record(data.workout) ||
       !record(data.session_selection) || !record(data.recovery?.decision) ||
       !record(data.memory) || !Array.isArray(data.gaps) || !record(data.provenance)) {
@@ -288,9 +307,12 @@ export function presentPreparation(data) {
   const recoveryReasons = Array.isArray(data.recovery.decision.reasons)
     ? data.recovery.decision.reasons.filter((item) => typeof item === 'string').slice(0, 20).map((item) => item.slice(0, 100))
     : [];
+  const planDate = safeDateOrNull(data.as_of?.date) ? data.as_of.date : null;
 
   return {
     as_of: text(data.as_of?.value),
+    report_date: reportDate ?? planDate,
+    plan_date: planDate,
     health_context: healthContext,
     session: {
       day_type: text(data.session_selection.selected_day_type),
@@ -308,7 +330,8 @@ export function presentPreparation(data) {
       status: text(data.recovery.decision.status, 'unavailable'),
       mode: text(data.recovery.decision.mode) || null,
       reasons: recoveryReasons,
-      explanation: text(data.recovery.decision.explanation).slice(0, 500)
+      explanation: text(data.recovery.decision.explanation).slice(0, 500),
+      oura: presentOura(data.recovery)
     },
     gaps: data.gaps.slice(0, 50).map((gap) => safeGap(gap, memoryUnavailable)),
     sources,
@@ -319,6 +342,13 @@ export function presentPreparation(data) {
 export function renderPreparation(data) {
   const lines = [`Training preparation for ${data.as_of || 'the requested time'}`];
   const { session, workout, recovery } = data;
+  if (data.report_date) lines.push(`Report date: ${data.report_date}`);
+  if (data.plan_date) lines.push(`Plan date: ${data.plan_date}`);
+  const oura = recovery.oura;
+  if (oura) {
+    const status = Object.keys(oura.metrics).length ? '' : ' (no eligible measurements)';
+    lines.push(`Oura observation date: ${oura.date}${status}`);
+  }
   lines.push(`Session: ${session.day_type || 'unspecified'} (${session.strategy || 'unspecified'})`);
   if (session.reason) lines.push(`Selection reason: ${session.reason}`);
 
